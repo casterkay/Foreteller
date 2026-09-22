@@ -1,0 +1,28 @@
+.gitignore
+  h_0528fe13c98664 4-5
+AGENTS.md
+  h_0528fe13c98664 1-232
+MVP_PLAN.md
+  s_766449632fdcc7::t_7b002b7504bf29 1-194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cd4df55e40651248b386c9582e8cf31982b2ec5b",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  },
+  "sessions": {
+    "s_766449632fdcc7": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a0c3a5-98bc-74b0-be40-fa0b037e932b",
+        "model": "deepseek-v4-flash"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
