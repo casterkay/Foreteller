@@ -1,0 +1,19 @@
+jev-live-mention-market-strategy.md
+  s_c2a1e43fa75e7b::t_89dc96d056fc7f 1-365
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "26afb8798649ebd413443f2683f7d5d835389101",
+  "prompts": {},
+  "sessions": {
+    "s_c2a1e43fa75e7b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b93b-9dc1-7560-b478-ef619ad3cea6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
