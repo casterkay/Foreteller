@@ -3,3 +3,8 @@
 .pi/
 .history/
 .DS_Store
+node_modules/
+dist/
+data/
+.env
+*.log
