@@ -1,0 +1,19 @@
+src/strategy/index.ts
+  s_766449632fdcc7::t_fb54a6b0423931 1-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3c507214dcfd08e27204b7b5ee7cba0532e81e25",
+  "prompts": {},
+  "sessions": {
+    "s_766449632fdcc7": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a0c3a5-98bc-74b0-be40-fa0b037e932b",
+        "model": "deepseek-v4-flash"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
