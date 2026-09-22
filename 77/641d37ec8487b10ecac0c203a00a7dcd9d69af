@@ -1,0 +1,21 @@
+src/forecast/index.ts
+  s_766449632fdcc7::t_6e3b0f118fb05c 1
+test/forecast/jev.test.ts
+  s_766449632fdcc7::t_93593e1f78236c 1-239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "77641d37ec8487b10ecac0c203a00a7dcd9d69af",
+  "prompts": {},
+  "sessions": {
+    "s_766449632fdcc7": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a0c3a5-98bc-74b0-be40-fa0b037e932b",
+        "model": "deepseek-v4-flash"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
