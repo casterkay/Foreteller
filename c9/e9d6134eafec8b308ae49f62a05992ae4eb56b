@@ -1,0 +1,26 @@
+src/execution/executor.ts
+  h_0528fe13c98664 1-312
+src/execution/index.ts
+  h_0528fe13c98664 1-12
+src/storage/index.ts
+  h_0528fe13c98664 1-8
+src/storage/schema.ts
+  h_0528fe13c98664 1-123
+src/storage/store.ts
+  h_0528fe13c98664 1-553
+test/executor.test.ts
+  h_0528fe13c98664 1-255
+test/storage.test.ts
+  h_0528fe13c98664 1-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c9e9d6134eafec8b308ae49f62a05992ae4eb56b",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
