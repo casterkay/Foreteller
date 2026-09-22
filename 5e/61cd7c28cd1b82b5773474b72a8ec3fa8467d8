@@ -1,0 +1,27 @@
+src/domain/types.ts
+  s_766449632fdcc7::t_6066b7c6c20098 137-138
+src/execution/executor.ts
+  s_766449632fdcc7::t_234b300a44dbf5 238-240,242
+src/transcript/deepgram.ts
+  s_766449632fdcc7::t_9bdc39dfaa37c8 10-11,256,274-282,290
+test/executor.test.ts
+  s_766449632fdcc7::t_521ef124f4bafa 85-91
+test/transcript/deepgram.test.ts
+  s_766449632fdcc7::t_2306937bae4c69 73,103-104,114-145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5e61cd7c28cd1b82b5773474b72a8ec3fa8467d8",
+  "prompts": {},
+  "sessions": {
+    "s_766449632fdcc7": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a0c3a5-98bc-74b0-be40-fa0b037e932b",
+        "model": "deepseek-v4-flash"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
