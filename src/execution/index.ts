@@ -10,3 +10,7 @@ export {
   type VenueOrderStatus,
   type VenueTrader,
 } from "./executor.js";
+export {
+  createPolymarketVenueTrader,
+  PolymarketVenueTrader,
+} from "./polymarket.js";
