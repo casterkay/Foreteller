@@ -3,7 +3,7 @@ import { Bot, type Context } from "grammy";
 import type { Logger } from "../core/log.js";
 
 export interface OperatorCommands {
-  watch(eventId: string, videoUrl: string): Promise<string>;
+  watch(eventId: string, videoUrl: string, speaker: string): Promise<string>;
   confirm(): Promise<string>;
   halt(): Promise<string>;
   status(): Promise<string>;
@@ -28,12 +28,13 @@ export function createOperatorBot(
   });
 
   bot.command("watch", async (context) => {
-    const [eventId, videoUrl, ...extra] = commandArguments(context);
-    if (!eventId || !videoUrl || extra.length > 0) {
-      await context.reply("Usage: /watch <event_id> <youtube_url>");
+    const [eventId, videoUrl, ...speakerWords] = commandArguments(context);
+    const speaker = speakerWords.join(" ");
+    if (!eventId || !videoUrl || !speaker) {
+      await context.reply("Usage: /watch <event_id> <youtube_url> <speaker name>");
       return;
     }
-    await replyWithResult(context, () => commands.watch(eventId, videoUrl));
+    await replyWithResult(context, () => commands.watch(eventId, videoUrl, speaker));
   });
 
   bot.command("go", async (context) => {
@@ -47,7 +48,7 @@ export function createOperatorBot(
   });
   bot.command("start", async (context) => {
     await context.reply(
-      "Commands: /watch <event_id> <youtube_url>, /go, /status, /halt",
+      "Commands: /watch <event_id> <youtube_url> <speaker name>, /go, /status, /halt",
     );
   });
 
