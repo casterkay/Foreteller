@@ -1,0 +1,14 @@
+package.json
+  h_0528fe13c98664 36-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "11fda358402a2d7bada0d0d797824aad2ae90bc0",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
