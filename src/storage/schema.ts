@@ -120,4 +120,18 @@ export const migrations: readonly string[] = [
     CREATE INDEX order_events_intent_idx ON order_events(intent_id, id);
     CREATE INDEX fills_intent_idx ON fills(intent_id, id);
   `,
+  `
+    CREATE TABLE forecast_batches (
+      id INTEGER PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id),
+      snapshot_at_ms INTEGER NOT NULL,
+      requested_at_ms INTEGER NOT NULL,
+      completed_at_ms INTEGER NOT NULL,
+      model TEXT NOT NULL,
+      request_json TEXT NOT NULL
+    ) STRICT;
+
+    CREATE INDEX forecast_batches_session_idx
+      ON forecast_batches(session_id, snapshot_at_ms, id);
+  `,
 ];

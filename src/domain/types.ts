@@ -42,6 +42,7 @@ export interface SessionBinding {
   readonly videoId: string;
   readonly channelId: string;
   readonly speaker: string;
+  readonly primarySpeaker?: number;
   readonly expectedStartMs: number;
   readonly expectedEndMs: number;
   readonly markets: readonly MarketDefinition[];

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { defaultLimits } from "../src/config.js";
 import type { SessionBinding, TranscriptSegment } from "../src/domain/types.js";
 import { formatReplayReport, formatSessionReport } from "../src/report.js";
 import { SqliteStore } from "../src/storage/index.js";
+import { decideSniperOrder, type SniperDecisionInput } from "../src/strategy/index.js";
 
 const binding: SessionBinding = Object.freeze({
   sessionId: "session-1",
@@ -71,10 +73,51 @@ describe("session reporting", () => {
       },
       2_250,
     );
+    const market = binding.markets[0];
+    if (market === undefined) throw new Error("fixture market missing");
+    const input: SniperDecisionInput = {
+      mention: {
+        marketId: market.marketId,
+        term: "ai",
+        transcript: "AI",
+        sourceStartMs: 2_000,
+        sourceEndMs: 2_100,
+        minimumConfidence: 0.95,
+        segmentIds: ["segment-1"],
+      },
+      market,
+      book: {
+        tokenId: market.yesTokenId,
+        bids: [],
+        asks: [],
+        tickSize: market.tickSize,
+        receivedAtMs: 2_200,
+        synchronized: false,
+      },
+      nowMs: 2_200,
+      remainingAllowance: 20,
+      attempts: 0,
+      lastAttemptAtMs: undefined,
+      limits: defaultLimits,
+    };
+    const decision = decideSniperOrder(input);
+    store.recordDecision({
+      id: "decision-1",
+      sessionId: binding.sessionId,
+      eventId: binding.eventId,
+      marketId: market.marketId,
+      strategy: "sniper",
+      accepted: decision.accepted,
+      reason: decision.accepted ? "accepted" : decision.reason,
+      evidenceJson: JSON.stringify({ input, timing: { observedAgeMs: 100 }, decision }),
+      createdAtMs: 2_200,
+    });
 
     expect(formatSessionReport(store)).toContain("Event: Policy speech");
     expect(formatSessionReport(store)).toContain("Forecasts: 1");
     expect(formatReplayReport(store)).toContain("Reproduced mention hits: 1");
+    expect(formatReplayReport(store)).toContain("Reproduced decisions: 1");
+    expect(formatReplayReport(store)).toContain("Decision mismatches: 0");
     expect(formatReplayReport(store)).toContain("Network access: disabled");
     store.close();
   });

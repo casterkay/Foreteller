@@ -62,7 +62,13 @@ function proposalFromSelected(selected: EventMarkets): EventProposal {
 
 function termForMarket(market: Event["markets"][number]): readonly TermSpec[] {
   const title = normalizedSimpleTerm(market.groupItemTitle);
-  if (title === undefined || isCountMarket(market.question, market.description)) return [];
+  if (
+    market.state.acceptingOrders !== true ||
+    title === undefined ||
+    isCountMarket(market.question, market.description)
+  ) {
+    return [];
+  }
 
   const windowStartMs = parseTimestamp(market.state.startDate);
   const windowEndMs = parseTimestamp(market.state.endDate);

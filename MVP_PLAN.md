@@ -15,6 +15,8 @@ Implementation status:
   credentials and a suitable live event.
 - HLS program time is unavailable through the current YouTube pipe. The service
   labels its fallback as `pipeline_clock`; this excludes upstream YouTube latency.
+- A timed-out order without a returned venue order ID remains blocked for external
+  account inspection; it cannot be reconciled safely from the local intent ID.
 - Resolved outcomes are not fetched automatically yet, so reports show filled
   positions as unresolved until outcome facts are recorded.
 
@@ -109,8 +111,8 @@ sample session to SQLite. No order submission is needed for this milestone.
 
 - [ ] Implement `/watch <event_id> <youtube_url>` for the allowlisted Telegram user.
 - [ ] Fetch video metadata and show event, channel, selected markets, and qualifying window.
-- [ ] Load an operator-authored TermSpec for each market: accepted forms, exclusions,
-      word boundaries, speaker scope, and qualifying window. Present it for review.
+- [ ] Derive a conservative exact-match TermSpec for each unambiguous market, including
+      accepted forms, exclusions, speaker scope, and qualifying window. Present it for review.
 - [ ] Implement `/go`, `/status`, and `/halt`; persist confirmation and the rules hash.
 - [ ] Poll for live start; allow only one active session. Recheck watched rules and closure.
 - [ ] Halt on changed rules, invalid binding, lost source, or event end. Require renewed

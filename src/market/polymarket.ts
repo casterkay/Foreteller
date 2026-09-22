@@ -128,6 +128,12 @@ function hashRules(eventId: string, title: string, markets: readonly SelectedMar
       id: market.id,
       question: market.question,
       description: market.description,
+      tokens: market.tokens,
+      tickSize: market.tickSize,
+      minimumOrderSize: market.minimumOrderSize,
+      feeSchedule: market.feeSchedule,
+      negRisk: market.negRisk,
+      acceptingOrders: market.acceptingOrders,
       term: {
         acceptedForms: market.term.acceptedForms,
         excludedForms: market.term.excludedForms,

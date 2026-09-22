@@ -34,6 +34,8 @@ export interface SessionControllerDependencies {
   readonly runtime: SessionRuntime;
   readonly clock?: Clock;
   readonly createSessionId?: () => string;
+  readonly primarySpeaker?: number;
+  readonly initialBinding?: SessionBinding;
 }
 
 interface DraftSession {
@@ -56,6 +58,12 @@ export class SessionController implements OperatorCommands {
   public constructor(private readonly dependencies: SessionControllerDependencies) {
     this.clock = dependencies.clock ?? systemClock;
     this.createSessionId = dependencies.createSessionId ?? randomUUID;
+    if (dependencies.initialBinding !== undefined) {
+      this.active = Object.freeze({
+        binding: dependencies.initialBinding,
+        status: "waiting",
+      });
+    }
   }
 
   public watch(eventId: string, videoUrl: string, speaker: string): Promise<string> {
@@ -104,6 +112,7 @@ export class SessionController implements OperatorCommands {
         videoId: draft.video.videoId,
         channelId: draft.video.channelId,
         speaker: draft.speaker,
+        primarySpeaker: this.dependencies.primarySpeaker ?? 0,
         expectedStartMs: currentProposal.expectedStartMs,
         expectedEndMs: currentProposal.expectedEndMs,
         markets: currentProposal.markets,
@@ -206,8 +215,21 @@ function validateLiveVideo(video: YouTubeMetadata): void {
 }
 
 function formatDraft(draft: DraftSession): string {
-  const terms = draft.proposal.markets.map((market) => market.term.label).join(", ");
-  return `Draft ready: ${draft.proposal.eventTitle}. ${draft.proposal.markets.length} terms: ${terms}. Send /go to confirm.`;
+  const channel = draft.video.channelName ?? "confirmed channel";
+  const start = new Date(draft.proposal.expectedStartMs).toISOString();
+  const end = new Date(draft.proposal.expectedEndMs).toISOString();
+  const terms = draft.proposal.markets.map((market) => {
+    const accepted = market.term.acceptedForms.join(" / ");
+    const excluded = market.term.excludedForms.length === 0
+      ? "none"
+      : market.term.excludedForms.join(" / ");
+    return `${market.term.label} [accepted: ${accepted}; excluded: ${excluded}; scope: ${market.term.speakerScope}]`;
+  }).join("\n");
+  const message = `Draft ready: ${draft.proposal.eventTitle}.\nFeed: ${draft.video.title} (${channel}).\nSpeaker: ${draft.speaker}.\nWindow: ${start} to ${end}.\nTerms (${String(draft.proposal.markets.length)}):\n${terms}\nSend /go to confirm these exact rules.`;
+  if (message.length > 4_000) {
+    throw new Error("Event has too many terms for a reviewable Telegram draft");
+  }
+  return message;
 }
 
 function requireText(value: string, name: string): string {

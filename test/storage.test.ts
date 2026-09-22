@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { FillRecord, OrderIntent } from "../src/domain/types.js";
+import type { FillRecord, OrderIntent, SessionBinding } from "../src/domain/types.js";
 import { SqliteStore, type BudgetLimits } from "../src/storage/index.js";
 
 const temporaryDirectories: string[] = [];
@@ -59,6 +59,32 @@ afterEach(() => {
 });
 
 describe("SqliteStore budget reservations", () => {
+  it("recovers one persisted non-terminal session and releases it after halt", () => {
+    const store = new SqliteStore(databasePath());
+    const binding: SessionBinding = {
+      sessionId: "session-1",
+      eventId: "event-1",
+      eventTitle: "Speech",
+      rulesHash: "rules",
+      videoUrl: "https://youtube.test/live",
+      videoId: "video",
+      channelId: "channel",
+      speaker: "Ada",
+      primarySpeaker: 0,
+      expectedStartMs: 1_000,
+      expectedEndMs: 2_000,
+      markets: [],
+      confirmedAtMs: 900,
+    };
+    store.recordSession(binding.sessionId, "waiting", 900);
+    store.recordBinding(binding);
+
+    expect(store.recoverableSession()).toEqual({ binding, status: "waiting" });
+    store.recordSessionStatus(binding.sessionId, "halted", 1_100);
+    expect(store.recoverableSession()).toBeUndefined();
+    store.close();
+  });
+
   it("counts an existing reservation when two store instances contend for the same cap", () => {
     const path = databasePath();
     const first = new SqliteStore(path);

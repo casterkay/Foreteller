@@ -54,9 +54,30 @@ export interface StoredSessionFacts {
   readonly binding: SessionBinding;
   readonly transcripts: readonly TranscriptSegment[];
   readonly forecasts: readonly ForecastAnswer[];
+  readonly forecastBatches: readonly StoredForecastBatch[];
   readonly decisions: readonly DecisionRecord[];
   readonly orders: readonly StoredOrder[];
   readonly fills: readonly FillRecord[];
+  readonly outcomes: readonly StoredOutcome[];
+}
+
+export interface RecoverableSession {
+  readonly binding: SessionBinding;
+  readonly status: "waiting" | "live";
+}
+
+export interface StoredOutcome {
+  readonly marketId: string;
+  readonly outcome: MarketOutcome;
+  readonly observedAtMs: number;
+}
+
+export interface StoredForecastBatch {
+  readonly snapshotAtMs: number;
+  readonly requestedAtMs: number;
+  readonly completedAtMs: number;
+  readonly model: string;
+  readonly requestJson: string;
 }
 
 export interface DecisionRecord {
@@ -206,6 +227,24 @@ export class SqliteStore {
       recordedAtMs,
     );
     return result.changes === 1;
+  }
+
+  public recordForecastBatch(
+    sessionId: string,
+    batch: StoredForecastBatch,
+  ): void {
+    this.database.prepare(`
+      INSERT INTO forecast_batches
+        (session_id, snapshot_at_ms, requested_at_ms, completed_at_ms, model, request_json)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      sessionId,
+      batch.snapshotAtMs,
+      batch.requestedAtMs,
+      batch.completedAtMs,
+      batch.model,
+      batch.requestJson,
+    );
   }
 
   public recordDecision(decision: DecisionRecord): void {
@@ -393,6 +432,43 @@ export class SqliteStore {
     return row?.id;
   }
 
+  public recoverableSession(): RecoverableSession | undefined {
+    const rows = this.database.prepare(`
+      WITH latest_status AS (
+        SELECT events.session_id, events.status
+        FROM session_status_events events
+        JOIN (
+          SELECT session_id, MAX(id) AS status_id
+          FROM session_status_events GROUP BY session_id
+        ) current ON current.status_id = events.id
+      ), latest_binding AS (
+        SELECT bindings.session_id, bindings.binding_json
+        FROM bindings
+        JOIN (
+          SELECT session_id, MAX(id) AS binding_id
+          FROM bindings GROUP BY session_id
+        ) current ON current.binding_id = bindings.id
+      )
+      SELECT latest_status.status, latest_binding.binding_json
+      FROM latest_status
+      JOIN latest_binding ON latest_binding.session_id = latest_status.session_id
+      WHERE latest_status.status IN ('waiting', 'live')
+      ORDER BY latest_status.session_id
+    `).all() as Array<{
+      readonly status: "waiting" | "live";
+      readonly binding_json: string;
+    }>;
+    if (rows.length > 1) {
+      throw new Error("Multiple recoverable sessions require operator intervention");
+    }
+    const row = rows[0];
+    if (row === undefined) return undefined;
+    return Object.freeze({
+      binding: JSON.parse(row.binding_json) as SessionBinding,
+      status: row.status,
+    });
+  }
+
   public sessionFacts(sessionId: string): StoredSessionFacts {
     const bindingRow = this.database.prepare(`
       SELECT binding_json FROM bindings
@@ -406,6 +482,7 @@ export class SqliteStore {
       WHERE session_id = ? ORDER BY id DESC LIMIT 1
     `).get(sessionId) as { readonly status: SessionStatus } | undefined;
     if (statusRow === undefined) throw new Error(`No status for session ${sessionId}`);
+    const binding = JSON.parse(bindingRow.binding_json) as SessionBinding;
 
     const transcriptRows = this.database.prepare(`
       SELECT segment_json FROM transcript_segments
@@ -416,6 +493,16 @@ export class SqliteStore {
       SELECT forecast_json FROM forecasts
       WHERE session_id = ? ORDER BY snapshot_at_ms, id
     `).all(sessionId) as { readonly forecast_json: string }[];
+    const forecastBatchRows = this.database.prepare(`
+      SELECT snapshot_at_ms, requested_at_ms, completed_at_ms, model, request_json
+      FROM forecast_batches WHERE session_id = ? ORDER BY snapshot_at_ms, id
+    `).all(sessionId) as Array<{
+      readonly snapshot_at_ms: number;
+      readonly requested_at_ms: number;
+      readonly completed_at_ms: number;
+      readonly model: string;
+      readonly request_json: string;
+    }>;
     const decisionRows = this.database.prepare(`
       SELECT id, session_id, event_id, market_id, strategy, accepted,
         reason, evidence_json, created_at_ms
@@ -454,16 +541,43 @@ export class SqliteStore {
       readonly status: FillRecord["status"];
       readonly occurred_at_ms: number;
     }>;
+    const marketIds = new Set(binding.markets.map((market) => market.marketId));
+    const outcomeRows = this.database.prepare(`
+      SELECT market_id, outcome, observed_at_ms
+      FROM outcomes ORDER BY observed_at_ms, id
+    `).all() as Array<{
+      readonly market_id: string;
+      readonly outcome: MarketOutcome;
+      readonly observed_at_ms: number;
+    }>;
+    const outcomes = new Map<string, StoredOutcome>();
+    for (const row of outcomeRows) {
+      if (!marketIds.has(row.market_id)) continue;
+      outcomes.set(row.market_id, Object.freeze({
+        marketId: row.market_id,
+        outcome: row.outcome,
+        observedAtMs: row.observed_at_ms,
+      }));
+    }
 
     return Object.freeze({
       sessionId,
       status: statusRow.status,
-      binding: JSON.parse(bindingRow.binding_json) as SessionBinding,
+      binding,
       transcripts: Object.freeze(
         transcriptRows.map((row) => JSON.parse(row.segment_json) as TranscriptSegment),
       ),
       forecasts: Object.freeze(
         forecastRows.map((row) => JSON.parse(row.forecast_json) as ForecastAnswer),
+      ),
+      forecastBatches: Object.freeze(
+        forecastBatchRows.map((row) => Object.freeze({
+          snapshotAtMs: row.snapshot_at_ms,
+          requestedAtMs: row.requested_at_ms,
+          completedAtMs: row.completed_at_ms,
+          model: row.model,
+          requestJson: row.request_json,
+        })),
       ),
       decisions: Object.freeze(
         decisionRows.map((row) => Object.freeze({
@@ -494,6 +608,7 @@ export class SqliteStore {
           occurredAtMs: row.occurred_at_ms,
         })),
       ),
+      outcomes: Object.freeze([...outcomes.values()]),
     });
   }
 

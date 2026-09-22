@@ -84,7 +84,8 @@ async function serve(
   const verifier: BindingVerifier = {
     verify: async (binding) => {
       const proposal = await proposer.propose(binding.eventId);
-      return proposal.rulesHash === binding.rulesHash;
+      return proposal.rulesHash === binding.rulesHash &&
+        proposal.markets.every((market) => market.acceptingOrders);
     },
   };
   const runtime = new LiveSessionRuntime({
@@ -102,15 +103,25 @@ async function serve(
     verifier,
     limits: config.limits,
     logger,
-    primarySpeaker: config.deepgramPrimarySpeaker,
     liveTrading: config.liveTrading,
     sessionDataDirectory: config.sessionDataDirectory,
   });
+  const recoverable = store.recoverableSession();
+  if (recoverable !== undefined) {
+    store.recordSessionStatus(recoverable.binding.sessionId, "waiting", Date.now());
+    await runtime.start(recoverable.binding);
+    logger.info("Recovered persisted session", {
+      sessionId: recoverable.binding.sessionId,
+      previousStatus: recoverable.status,
+    });
+  }
   const controller = new SessionController({
     proposer,
     videoInspector: videoProbe,
     journal: store,
     runtime,
+    primarySpeaker: config.deepgramPrimarySpeaker,
+    ...(recoverable === undefined ? {} : { initialBinding: recoverable.binding }),
   });
   const bot = createOperatorBot(
     config.telegramBotToken,

@@ -45,7 +45,10 @@ speaker differently. Commentary and translated feeds should not be used.
 
 SQLite is the authoritative journal. Order intents reserve persistent daily,
 event, strategy, and wallet capacity before submission. A timed-out submission
-stays unknown and blocks later orders until venue reconciliation succeeds.
+stays unknown and blocks later orders. When the venue returned an order ID, the
+service keeps reconciling it without retrying the order. When no order ID was
+returned, the SDK cannot identify it from Foreteller's local intent ID; inspect
+the Polymarket account externally before restarting live trading.
 
 Audio is archived as FLAC under `SESSION_DATA_DIR/<session_id>/`. Reports and
 offline replay use only stored facts:
