@@ -1,0 +1,14 @@
+src/control/telegram.ts
+  h_0528fe13c98664 6,31-34,37,51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "82411b4bc862b96d5aa78a2092ae370893f711e0",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
