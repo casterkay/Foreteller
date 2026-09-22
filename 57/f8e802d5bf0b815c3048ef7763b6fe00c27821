@@ -1,0 +1,28 @@
+src/market/book.ts
+  h_0528fe13c98664 1-205
+src/market/execution-cost.ts
+  h_0528fe13c98664 1-76
+src/market/polymarket.ts
+  h_0528fe13c98664 1-198
+src/market/subscription.ts
+  h_0528fe13c98664 1-277
+src/market/types.ts
+  h_0528fe13c98664 1-78
+test/market/book.test.ts
+  h_0528fe13c98664 1-161
+test/market/polymarket.test.ts
+  h_0528fe13c98664 1-87
+test/market/subscription.test.ts
+  h_0528fe13c98664 1-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "57f8e802d5bf0b815c3048ef7763b6fe00c27821",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
