@@ -1,0 +1,24 @@
+package.json
+  h_0528fe13c98664 14
+src/control/telegram.ts
+  h_0528fe13c98664 1-80
+src/media/youtube.ts
+  h_0528fe13c98664 1-63
+test/youtube.test.ts
+  h_0528fe13c98664 1-11
+tsconfig.json
+  h_0528fe13c98664 22
+vitest.config.ts
+  h_0528fe13c98664 1-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aba5e4b174eb071de2f8c5f245b3f04a91eee7e0",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
