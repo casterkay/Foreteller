@@ -104,8 +104,8 @@ describe("DeepgramStreamingTranscriber", () => {
         observedAgeBasis: "source_timestamp",
         segment: expect.objectContaining({
           isFinal: false,
-          sourceStartMs: 1_000,
-          sourceEndMs: 2_000,
+          sourceStartMs: 2_000,
+          sourceEndMs: 3_000,
         }),
       }),
     ]);

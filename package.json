@@ -11,6 +11,8 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts serve",
     "doctor": "tsx src/main.ts doctor",
+    "report": "tsx src/main.ts report",
+    "replay": "tsx src/main.ts replay",
     "start": "node dist/src/main.js serve",
     "test": "vitest run",
     "test:watch": "vitest"

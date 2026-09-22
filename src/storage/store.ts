@@ -48,6 +48,17 @@ export interface StoredOrder {
   readonly reason?: string;
 }
 
+export interface StoredSessionFacts {
+  readonly sessionId: string;
+  readonly status: SessionStatus;
+  readonly binding: SessionBinding;
+  readonly transcripts: readonly TranscriptSegment[];
+  readonly forecasts: readonly ForecastAnswer[];
+  readonly decisions: readonly DecisionRecord[];
+  readonly orders: readonly StoredOrder[];
+  readonly fills: readonly FillRecord[];
+}
+
 export interface DecisionRecord {
   readonly id: string;
   readonly sessionId: string;
@@ -373,6 +384,117 @@ export class SqliteStore {
     const rows = this.orderQuery(`WHERE latest.status IN (${placeholders})`)
       .all(...activeReservationStatuses) as StoredOrderRow[];
     return rows.map((row) => this.mapOrder(row));
+  }
+
+  public latestSessionId(): string | undefined {
+    const row = this.database.prepare(`
+      SELECT id FROM sessions ORDER BY created_at_ms DESC, rowid DESC LIMIT 1
+    `).get() as { readonly id: string } | undefined;
+    return row?.id;
+  }
+
+  public sessionFacts(sessionId: string): StoredSessionFacts {
+    const bindingRow = this.database.prepare(`
+      SELECT binding_json FROM bindings
+      WHERE session_id = ? ORDER BY confirmed_at_ms DESC, id DESC LIMIT 1
+    `).get(sessionId) as { readonly binding_json: string } | undefined;
+    if (bindingRow === undefined) {
+      throw new Error(`No confirmed binding for session ${sessionId}`);
+    }
+    const statusRow = this.database.prepare(`
+      SELECT status FROM session_status_events
+      WHERE session_id = ? ORDER BY id DESC LIMIT 1
+    `).get(sessionId) as { readonly status: SessionStatus } | undefined;
+    if (statusRow === undefined) throw new Error(`No status for session ${sessionId}`);
+
+    const transcriptRows = this.database.prepare(`
+      SELECT segment_json FROM transcript_segments
+      WHERE session_id = ? AND is_final = 1
+      ORDER BY source_start_ms, segment_id
+    `).all(sessionId) as { readonly segment_json: string }[];
+    const forecastRows = this.database.prepare(`
+      SELECT forecast_json FROM forecasts
+      WHERE session_id = ? ORDER BY snapshot_at_ms, id
+    `).all(sessionId) as { readonly forecast_json: string }[];
+    const decisionRows = this.database.prepare(`
+      SELECT id, session_id, event_id, market_id, strategy, accepted,
+        reason, evidence_json, created_at_ms
+      FROM decisions WHERE session_id = ? ORDER BY created_at_ms, id
+    `).all(sessionId) as Array<{
+      readonly id: string;
+      readonly session_id: string;
+      readonly event_id: string;
+      readonly market_id: string;
+      readonly strategy: Strategy;
+      readonly accepted: number;
+      readonly reason: string;
+      readonly evidence_json: string;
+      readonly created_at_ms: number;
+    }>;
+    const fillRows = this.database.prepare(`
+      WITH latest_fill_events AS (
+        SELECT f.* FROM fills f
+        JOIN (
+          SELECT venue_trade_id, MAX(id) AS fill_id
+          FROM fills GROUP BY venue_trade_id
+        ) current ON current.fill_id = f.id
+      )
+      SELECT f.venue_trade_id, f.venue_order_id, f.intent_id, f.price,
+        f.shares, f.fee_micros, f.status, f.occurred_at_ms
+      FROM latest_fill_events f
+      JOIN order_intents i ON i.id = f.intent_id
+      WHERE i.session_id = ? ORDER BY f.occurred_at_ms, f.venue_trade_id
+    `).all(sessionId) as Array<{
+      readonly venue_trade_id: string;
+      readonly venue_order_id: string;
+      readonly intent_id: string;
+      readonly price: number;
+      readonly shares: number;
+      readonly fee_micros: number;
+      readonly status: FillRecord["status"];
+      readonly occurred_at_ms: number;
+    }>;
+
+    return Object.freeze({
+      sessionId,
+      status: statusRow.status,
+      binding: JSON.parse(bindingRow.binding_json) as SessionBinding,
+      transcripts: Object.freeze(
+        transcriptRows.map((row) => JSON.parse(row.segment_json) as TranscriptSegment),
+      ),
+      forecasts: Object.freeze(
+        forecastRows.map((row) => JSON.parse(row.forecast_json) as ForecastAnswer),
+      ),
+      decisions: Object.freeze(
+        decisionRows.map((row) => Object.freeze({
+          id: row.id,
+          sessionId: row.session_id,
+          eventId: row.event_id,
+          marketId: row.market_id,
+          strategy: row.strategy,
+          accepted: row.accepted === 1,
+          reason: row.reason,
+          evidenceJson: row.evidence_json,
+          createdAtMs: row.created_at_ms,
+        })),
+      ),
+      orders: Object.freeze(
+        (this.orderQuery("WHERE i.session_id = ?").all(sessionId) as StoredOrderRow[])
+          .map((row) => this.mapOrder(row)),
+      ),
+      fills: Object.freeze(
+        fillRows.map((row) => Object.freeze({
+          venueTradeId: row.venue_trade_id,
+          venueOrderId: row.venue_order_id,
+          intentId: row.intent_id,
+          price: row.price,
+          shares: row.shares,
+          fee: row.fee_micros / MICROS_PER_UNIT,
+          status: row.status,
+          occurredAtMs: row.occurred_at_ms,
+        })),
+      ),
+    });
   }
 
   public exposure(filter: {

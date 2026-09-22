@@ -1,0 +1,149 @@
+import { loadConfig } from "./config.js";
+import { PolymarketEventProposer, SessionController, createOperatorBot } from "./control/index.js";
+import { createLogger } from "./core/log.js";
+import { formatDoctorReport, runDoctor } from "./doctor.js";
+import {
+  DisabledVenueTrader,
+  SerializedExecutor,
+  createPolymarketVenueTrader,
+} from "./execution/index.js";
+import { JevForecaster } from "./forecast/index.js";
+import { createPolymarketReadClient } from "./market/polymarket.js";
+import { createPolymarketSubscriptionClient } from "./market/subscription.js";
+import { YouTubeProbe } from "./media/youtube.js";
+import { formatReplayReport, formatSessionReport } from "./report.js";
+import { LiveSessionRuntime, type BindingVerifier } from "./runtime/index.js";
+import { SqliteStore } from "./storage/index.js";
+import { DeepgramStreamingTranscriber } from "./transcript/index.js";
+
+const command = process.argv[2] ?? "serve";
+
+async function main(): Promise<void> {
+  const config = loadConfig();
+  const logger = createLogger(config.logLevel);
+
+  if (command === "doctor") {
+    const checks = await runDoctor(config);
+    process.stdout.write(`${formatDoctorReport(checks)}\n`);
+    process.exitCode = checks.every((check) => check.ok || !check.required) ? 0 : 1;
+    return;
+  }
+
+  if (command === "report" || command === "replay") {
+    const store = new SqliteStore(config.databasePath);
+    try {
+      const sessionId = process.argv[3];
+      const output = command === "report"
+        ? formatSessionReport(store, sessionId)
+        : formatReplayReport(store, sessionId);
+      process.stdout.write(`${output}\n`);
+    } finally {
+      store.close();
+    }
+    return;
+  }
+
+  if (command !== "serve") {
+    throw new Error("Usage: foreteller <serve|doctor|report [session_id]|replay [session_id]>");
+  }
+
+  await serve(config, logger);
+}
+
+async function serve(
+  config: ReturnType<typeof loadConfig>,
+  logger: ReturnType<typeof createLogger>,
+): Promise<void> {
+  if (config.telegramBotToken === undefined || config.telegramOperatorId === undefined) {
+    throw new Error("serve requires TELEGRAM_BOT_TOKEN and TELEGRAM_OPERATOR_ID");
+  }
+  if (config.deepgramApiKey === undefined || config.typeSafeApiKey === undefined) {
+    throw new Error("serve requires DEEPGRAM_API_KEY and TYPESAFE_API_KEY");
+  }
+
+  const store = new SqliteStore(config.databasePath);
+  const readClient = createPolymarketReadClient();
+  const proposer = new PolymarketEventProposer(readClient);
+  const videoProbe = new YouTubeProbe();
+  const trader = config.liveTrading
+    ? await createPolymarketVenueTrader(config)
+    : new DisabledVenueTrader();
+  const executor = new SerializedExecutor(store, trader, {
+    liveTrading: config.liveTrading,
+    requestTimeoutMs: 10_000,
+    limits: {
+      dailyNotionalLimit: config.limits.dailyNotionalLimit,
+      eventNotionalLimit: config.limits.eventNotionalLimit,
+      forecastMarketAllowance: config.limits.forecastMarketAllowance,
+      sniperMarketAllowance: config.limits.sniperMarketAllowance,
+      maximumSourceAgeMs: config.limits.maximumSourceAgeMs,
+    },
+  });
+  await executor.reconcileStartup();
+  executor.halt();
+  const verifier: BindingVerifier = {
+    verify: async (binding) => {
+      const proposal = await proposer.propose(binding.eventId);
+      return proposal.rulesHash === binding.rulesHash;
+    },
+  };
+  const runtime = new LiveSessionRuntime({
+    store,
+    subscriberClient: createPolymarketSubscriptionClient(),
+    videoProbe,
+    transcriber: new DeepgramStreamingTranscriber({ apiKey: config.deepgramApiKey }),
+    forecaster: new JevForecaster({
+      apiKey: config.typeSafeApiKey,
+      timeoutMs: 15_000,
+      maximumForecastAgeMs: config.limits.maximumForecastAgeMs,
+      minimumIntervalMs: config.limits.minimumForecastIntervalMs,
+    }),
+    executor,
+    verifier,
+    limits: config.limits,
+    logger,
+    primarySpeaker: config.deepgramPrimarySpeaker,
+    liveTrading: config.liveTrading,
+    sessionDataDirectory: config.sessionDataDirectory,
+  });
+  const controller = new SessionController({
+    proposer,
+    videoInspector: videoProbe,
+    journal: store,
+    runtime,
+  });
+  const bot = createOperatorBot(
+    config.telegramBotToken,
+    config.telegramOperatorId,
+    controller,
+    logger,
+  );
+
+  let shuttingDown = false;
+  const shutdown = async (reason: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info("Stopping Foreteller", { reason });
+    bot.stop();
+    await runtime.shutdown();
+    store.close();
+  };
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+
+  logger.info("Foreteller operator service started", {
+    liveTrading: config.liveTrading,
+    audioAgeBasis: "pipeline clock unless the source provides wall-clock timestamps",
+    primarySpeaker: config.deepgramPrimarySpeaker,
+  });
+  try {
+    await bot.start();
+  } finally {
+    await shutdown("bot stopped");
+  }
+}
+
+main().catch((error: unknown) => {
+  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  process.exitCode = 1;
+});

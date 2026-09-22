@@ -5,4 +5,5 @@ export {
   type MarketOutcome,
   type ReservationResult,
   type StoredOrder,
+  type StoredSessionFacts,
 } from "./store.js";

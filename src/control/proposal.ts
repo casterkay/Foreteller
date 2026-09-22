@@ -122,6 +122,9 @@ function toMarketDefinition(eventId: string, market: SelectedMarket): MarketDefi
     negRisk: market.negRisk,
     acceptingOrders: market.acceptingOrders,
     feeRate: market.feeSchedule?.rate ?? 0,
+    ...(market.feeSchedule === undefined
+      ? {}
+      : { feeExponent: market.feeSchedule.exponent }),
     term: market.term,
   });
 }

@@ -29,6 +29,7 @@ export interface MarketDefinition {
   readonly negRisk: boolean;
   readonly acceptingOrders: boolean;
   readonly feeRate: number;
+  readonly feeExponent?: number;
   readonly term: TermSpec;
 }
 

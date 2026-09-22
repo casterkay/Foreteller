@@ -114,6 +114,7 @@ function toIntentStatus(status: VenueOrderStatus): OrderIntentStatus {
 
 export class SerializedExecutor {
   private ready = false;
+  private halted = false;
   private serialTail: Promise<void> = Promise.resolve();
 
   public constructor(
@@ -139,9 +140,27 @@ export class SerializedExecutor {
     return this.reconcileStartup();
   }
 
+  public halt(): void {
+    this.halted = true;
+  }
+
+  public resume(): void {
+    if (!this.ready) {
+      throw new ReconciliationRequiredError(this.store.listUnresolvedOrders().length);
+    }
+    this.halted = false;
+  }
+
   public execute(request: ExecutionRequest): Promise<ExecutionResult> {
     return this.runSerialized(async () => {
       if (!this.ready) throw new ReconciliationRequiredError(this.store.listUnresolvedOrders().length);
+      if (this.halted) {
+        return {
+          intentId: request.intent.id,
+          status: "failed",
+          reason: "execution is halted",
+        };
+      }
 
       const rejection = this.validateRequest(request);
       if (rejection !== undefined) {

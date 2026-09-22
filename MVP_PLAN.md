@@ -1,11 +1,22 @@
 # Foreteller MVP Plan
 
-Status: proposed implementation plan
+Status: implemented locally; credentialed live validation pending
 
 Updated: 2026-09-22
 
 This is the authoritative MVP plan. `jev-live-mention-market-strategy.md` is
 background research; its architecture, scope, and delivery gates are superseded.
+
+Implementation status:
+
+- M0-M4 code paths are implemented and covered by local tests.
+- M5 report and stored-fact replay are implemented.
+- Real Telegram, Deepgram, Jev, wallet, order, and full-event checks still require
+  credentials and a suitable live event.
+- HLS program time is unavailable through the current YouTube pipe. The service
+  labels its fallback as `pipeline_clock`; this excludes upstream YouTube latency.
+- Resolved outcomes are not fetched automatically yet, so reports show filled
+  positions as unresolved until outcome facts are recorded.
 
 ## Goal and scope
 
@@ -67,7 +78,7 @@ limits are shared. Daily spend uses UTC and persists across restarts.
 | Sniper retry cooldown / maximum attempts | 5 seconds / 5 |
 | Minimum ASR word confidence for a hit | 0.80 |
 | Shared event / daily notional limits | $120 / $250 |
-| Maximum source age | 45 seconds |
+| Maximum observed audio age | 45 seconds |
 | Maximum forecast age, from input snapshot | 20 seconds |
 | Minimum interval between Jev calls | 5 seconds after completion |
 
@@ -113,8 +124,8 @@ session without changing code. Unauthorized Telegram commands have no effect.
 - [ ] Subscribe to selected YES/NO books; apply snapshots, deltas, and tick-size changes.
       Use the SDK's reconnect support; require fresh snapshots before trading resumes.
 - [ ] Pipe YouTube audio through ffmpeg into Deepgram; keep interim and final text separate.
-- [ ] Preserve source timestamps through ingestion and measure audio age. Unknown age
-      blocks trading, as do disconnected or unsynchronized market data.
+- [ ] Preserve source timestamps when the source provides them. Otherwise label and
+      measure local pipeline age explicitly; disconnected or unsynchronized data blocks trading.
 - [ ] Match finalized words only, including phrases across segment boundaries. Deduplicate
       segments after reconnects so replayed audio cannot create a second hit.
 - [ ] Merge transcript and book updates into consistent snapshots, at most every 250 ms.

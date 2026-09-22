@@ -13,11 +13,11 @@ const environmentSchema = z.object({
   TYPESAFE_API_KEY: optionalSecret,
   POLYMARKET_PRIVATE_KEY: optionalSecret,
   POLYMARKET_FUNDER_ADDRESS: optionalSecret,
-  POLYMARKET_SIGNATURE_TYPE: z.coerce.number().int().min(0).max(2).default(2),
   DATABASE_PATH: z.string().default("./data/foreteller.sqlite"),
   SESSION_DATA_DIR: z.string().default("./data/sessions"),
   LIVE_TRADING: z.enum(["true", "false"]).default("false"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+  DEEPGRAM_PRIMARY_SPEAKER: z.coerce.number().int().nonnegative().default(0),
 });
 
 export interface Limits {
@@ -67,11 +67,11 @@ export interface AppConfig {
   readonly typeSafeApiKey?: string;
   readonly polymarketPrivateKey?: string;
   readonly polymarketFunderAddress?: string;
-  readonly polymarketSignatureType: number;
   readonly databasePath: string;
   readonly sessionDataDirectory: string;
   readonly liveTrading: boolean;
   readonly logLevel: "debug" | "info" | "warn" | "error";
+  readonly deepgramPrimarySpeaker: number;
   readonly limits: Limits;
 }
 
@@ -106,11 +106,11 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     ...(parsed.POLYMARKET_FUNDER_ADDRESS === undefined
       ? {}
       : { polymarketFunderAddress: parsed.POLYMARKET_FUNDER_ADDRESS }),
-    polymarketSignatureType: parsed.POLYMARKET_SIGNATURE_TYPE,
     databasePath: resolve(parsed.DATABASE_PATH),
     sessionDataDirectory: resolve(parsed.SESSION_DATA_DIR),
     liveTrading: parsed.LIVE_TRADING === "true",
     logLevel: parsed.LOG_LEVEL,
+    deepgramPrimarySpeaker: parsed.DEEPGRAM_PRIMARY_SPEAKER,
     limits: defaultLimits,
   });
 }

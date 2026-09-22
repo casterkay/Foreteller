@@ -249,6 +249,28 @@ describe("SerializedExecutor", () => {
     expect(trader.submissions).toHaveLength(0);
     restarted.close();
   });
+
+  it("blocks submissions at the serialized boundary while halted", async () => {
+    const store = createStore();
+    const trader = new TraderStub();
+    const executor = new SerializedExecutor(store, trader, options, {
+      now: () => timestamp + 2,
+    });
+    await executor.reconcileStartup();
+    executor.halt();
+
+    await expect(executor.execute(request())).resolves.toEqual({
+      intentId: "intent-1",
+      status: "failed",
+      reason: "execution is halted",
+    });
+    expect(trader.submissions).toEqual([]);
+
+    executor.resume();
+    await executor.execute(request());
+    expect(trader.submissions).toHaveLength(1);
+    store.close();
+  });
 });
 
 describe("roundPriceDown", () => {

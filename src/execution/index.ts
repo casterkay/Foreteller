@@ -14,3 +14,4 @@ export {
   createPolymarketVenueTrader,
   PolymarketVenueTrader,
 } from "./polymarket.js";
+export { DisabledVenueTrader } from "./disabled.js";

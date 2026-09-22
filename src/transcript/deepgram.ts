@@ -103,6 +103,26 @@ function segmentFromResult(
   });
 }
 
+function anchorSegment(
+  segment: TranscriptSegment,
+  timeOriginMs: number,
+): TranscriptSegment {
+  return Object.freeze({
+    ...segment,
+    words: Object.freeze(
+      segment.words.map((word) =>
+        Object.freeze({
+          ...word,
+          startMs: timeOriginMs + word.startMs,
+          endMs: timeOriginMs + word.endMs,
+        }),
+      ),
+    ),
+    sourceStartMs: timeOriginMs + segment.sourceStartMs,
+    sourceEndMs: timeOriginMs + segment.sourceEndMs,
+  });
+}
+
 interface DeepgramWord {
   readonly word: string;
   readonly punctuated_word?: string;
@@ -269,15 +289,16 @@ export class DeepgramStreamingTranscriber implements StreamingTranscriber {
       const result = parseDeepgramResult(message);
       if (result === undefined) return;
       const receivedAtMs = this.#clock.now();
-      const segment = segmentFromResult(result, receivedAtMs);
-      if (segment === undefined) return;
+      const relativeSegment = segmentFromResult(result, receivedAtMs);
+      if (relativeSegment === undefined) return;
       const observedAgeBasis =
         sourceTimeOriginMs === null ? "pipeline_clock" : "source_timestamp";
       const timeOriginMs = sourceTimeOriginMs ?? pipelineTimeOriginMs;
       if (timeOriginMs === null) return;
+      const segment = anchorSegment(relativeSegment, timeOriginMs);
       const observedAgeMs = Math.max(
         0,
-        receivedAtMs - timeOriginMs - segment.sourceEndMs,
+        receivedAtMs - segment.sourceEndMs,
       );
       onTranscript(Object.freeze({ segment, observedAgeMs, observedAgeBasis }));
     });

@@ -6,6 +6,7 @@ import { TypeSafeClient } from "@typesafe-ai/sdk";
 
 import type { AppConfig } from "./config.js";
 import { withTimeout } from "./core/async.js";
+import { createPolymarketVenueTrader } from "./execution/polymarket.js";
 
 const executeFile = promisify(execFile);
 
@@ -22,9 +23,43 @@ export async function runDoctor(config: AppConfig): Promise<readonly DoctorCheck
     checkBinary("ffmpeg", ["-version"]),
     checkPolymarket(),
     checkTypeSafe(config),
+    checkWallet(config),
     Promise.resolve(checkConfiguration(config)),
   ]);
   return Object.freeze(checks);
+}
+
+async function checkWallet(config: AppConfig): Promise<DoctorCheck> {
+  if (!config.liveTrading) {
+    return {
+      name: "wallet",
+      ok: true,
+      detail: "skipped in dry-run mode",
+      required: false,
+    };
+  }
+  try {
+    const trader = await createPolymarketVenueTrader(config);
+    const status = await withTimeout(
+      () => trader.accountStatus(),
+      10_000,
+      "wallet check",
+    );
+    const allowancesReady = status.allowances.length > 0 && status.allowances.every((value) => value > 0);
+    return {
+      name: "wallet",
+      ok: status.balance > 0 && allowancesReady,
+      detail: `$${status.balance.toFixed(2)} collateral; ${String(status.allowances.length)} allowance(s)${allowancesReady ? " ready" : " missing"}`,
+      required: true,
+    };
+  } catch (error) {
+    return {
+      name: "wallet",
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+      required: true,
+    };
+  }
 }
 
 async function checkBinary(

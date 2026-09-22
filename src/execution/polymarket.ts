@@ -1,8 +1,8 @@
 import {
-  AssetType,
   createSecureClient,
   OrderSide,
   OrderType,
+  type AssetType,
   type ClobTrade,
   type OpenOrder,
   type OrderResponse,
@@ -21,6 +21,7 @@ import type {
 } from "./executor.js";
 
 type TradingClient = SecureClient;
+const collateralAssetType = "COLLATERAL" as AssetType;
 
 export async function createPolymarketVenueTrader(
   config: AppConfig,
@@ -40,9 +41,24 @@ export class PolymarketVenueTrader implements VenueTrader {
 
   public async availableBalance(_signal: AbortSignal): Promise<number> {
     const response = await fetchBalanceAllowance(this.client, {
-      assetType: AssetType.COLLATERAL,
+      assetType: collateralAssetType,
     });
     return Number(response.balance) / 1_000_000;
+  }
+
+  public async accountStatus(): Promise<{
+    readonly balance: number;
+    readonly allowances: readonly number[];
+  }> {
+    const response = await fetchBalanceAllowance(this.client, {
+      assetType: collateralAssetType,
+    });
+    return Object.freeze({
+      balance: Number(response.balance) / 1_000_000,
+      allowances: Object.freeze(
+        Object.values(response.allowances).map((allowance) => Number(allowance) / 1_000_000),
+      ),
+    });
   }
 
   public async submitFakMarketBuy(

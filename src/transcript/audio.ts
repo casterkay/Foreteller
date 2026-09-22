@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import type { Clock } from "../core/clock.js";
 import { systemClock } from "../core/clock.js";
@@ -21,6 +23,7 @@ export interface YoutubeAudioSourceOptions {
   readonly videoUrl: string;
   readonly ytDlpPath?: string;
   readonly ffmpegPath?: string;
+  readonly archivePath?: string;
   readonly clock?: Clock;
 }
 
@@ -58,12 +61,14 @@ export class YoutubeAudioSource implements AudioSource {
   readonly #ytDlpPath: string;
   readonly #ffmpegPath: string;
   readonly #clock: Clock;
+  readonly #archivePath: string | undefined;
 
   constructor(options: YoutubeAudioSourceOptions) {
     this.#videoUrl = options.videoUrl;
     this.#ytDlpPath = options.ytDlpPath ?? "yt-dlp";
     this.#ffmpegPath = options.ffmpegPath ?? "ffmpeg";
     this.#clock = options.clock ?? systemClock;
+    this.#archivePath = options.archivePath;
   }
 
   async run(
@@ -71,29 +76,38 @@ export class YoutubeAudioSource implements AudioSource {
     signal: AbortSignal,
   ): Promise<void> {
     signal.throwIfAborted();
+    if (this.#archivePath !== undefined) {
+      await mkdir(dirname(this.#archivePath), { recursive: true });
+    }
 
     const ytDlp = spawn(
       this.#ytDlpPath,
       ["--no-playlist", "--quiet", "-f", "bestaudio", "-o", "-", this.#videoUrl],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
+    const ffmpegArguments = [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      "pipe:0",
+      "-vn",
+      "-map",
+      "0:a:0",
+      "-ac",
+      "1",
+      "-ar",
+      "16000",
+      "-f",
+      "s16le",
+      "pipe:1",
+      ...(this.#archivePath === undefined
+        ? []
+        : ["-map", "0:a:0", "-ac", "1", "-ar", "16000", "-c:a", "flac", "-n", this.#archivePath]),
+    ];
     const ffmpeg = spawn(
       this.#ffmpegPath,
-      [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        "pipe:0",
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-f",
-        "s16le",
-        "pipe:1",
-      ],
+      ffmpegArguments,
       { stdio: ["pipe", "pipe", "pipe"] },
     );
 
