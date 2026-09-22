@@ -1,0 +1,22 @@
+package.json
+  h_0528fe13c98664 25
+pnpm-lock.yaml
+  h_0528fe13c98664 16,29-31,428-438,526-530,650-657,738-745,841-852,985,995-996,1102-1106,1192-1195,1281-1295,1381-1397,1444-1445
+src/execution/index.ts
+  h_0528fe13c98664 13-16
+src/execution/polymarket.ts
+  h_0528fe13c98664 1-174
+test/polymarket-execution.test.ts
+  h_0528fe13c98664 1-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c9528017644d55bb82db5c00b312b79c8393ac28",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
