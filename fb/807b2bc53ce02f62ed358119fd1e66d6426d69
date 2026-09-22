@@ -1,0 +1,34 @@
+.env.example
+  h_0528fe13c98664 1-18
+.gitignore
+  h_0528fe13c98664 5-10
+package.json
+  h_0528fe13c98664 1-37
+pnpm-lock.yaml
+  h_0528fe13c98664 1-1356
+src/config.ts
+  h_0528fe13c98664 1-116
+src/core/async.ts
+  h_0528fe13c98664 1-18
+src/core/clock.ts
+  h_0528fe13c98664 1-7
+src/core/log.ts
+  h_0528fe13c98664 1-40
+src/domain/types.ts
+  h_0528fe13c98664 1-145
+test/config.test.ts
+  h_0528fe13c98664 1-19
+tsconfig.json
+  h_0528fe13c98664 1-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fb807b2bc53ce02f62ed358119fd1e66d6426d69",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
