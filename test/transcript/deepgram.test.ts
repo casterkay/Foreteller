@@ -70,7 +70,7 @@ class FakeConnection implements DeepgramConnection {
 }
 
 describe("DeepgramStreamingTranscriber", () => {
-  it("maps interim results and computes age only from real source timestamps", async () => {
+  it("maps interim results and identifies real source timestamp age", async () => {
     const connection = new FakeConnection();
     const factory: DeepgramConnectionFactory = {
       connect: async () => connection,
@@ -100,7 +100,8 @@ describe("DeepgramStreamingTranscriber", () => {
 
     expect(events).toEqual([
       expect.objectContaining({
-        sourceAgeMs: 2_000,
+        observedAgeMs: 2_000,
+        observedAgeBasis: "source_timestamp",
         segment: expect.objectContaining({
           isFinal: false,
           sourceStartMs: 1_000,
@@ -109,5 +110,37 @@ describe("DeepgramStreamingTranscriber", () => {
       }),
     ]);
     expect(connection.closed).toBe(true);
+  });
+
+  it("labels stream-relative timing as pipeline age", async () => {
+    const connection = new FakeConnection();
+    const source: AudioSource = {
+      run: async (onChunk) => {
+        onChunk({
+          data: new Uint8Array([1]),
+          receivedAtMs: 3_000,
+          sourceTimestampMs: null,
+          sourceAgeMs: null,
+        });
+      },
+    };
+    const events: Array<{ observedAgeMs: number; observedAgeBasis: string }> = [];
+    const transcriber = new DeepgramStreamingTranscriber(
+      { apiKey: "test", clock: { now: () => 5_500 } },
+      { connect: async () => connection },
+    );
+
+    await transcriber.run(
+      source,
+      (event) => events.push(event),
+      new AbortController().signal,
+    );
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        observedAgeMs: 500,
+        observedAgeBasis: "pipeline_clock",
+      }),
+    ]);
   });
 });

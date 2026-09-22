@@ -7,7 +7,8 @@ import type { AudioChunk, AudioSource } from "./audio.js";
 
 export interface TranscriptEvent {
   readonly segment: TranscriptSegment;
-  readonly sourceAgeMs: number | null;
+  readonly observedAgeMs: number;
+  readonly observedAgeBasis: "source_timestamp" | "pipeline_clock";
 }
 
 export interface StreamingTranscriber {
@@ -252,6 +253,7 @@ export class DeepgramStreamingTranscriber implements StreamingTranscriber {
     ]);
     const connection = await this.#connections.connect(combinedSignal);
     let sourceTimeOriginMs: number | null = null;
+    let pipelineTimeOriginMs: number | null = null;
     let connectionError: Error | undefined;
     let markClosed: (() => void) | undefined;
     const closed = new Promise<void>((resolve) => {
@@ -269,11 +271,15 @@ export class DeepgramStreamingTranscriber implements StreamingTranscriber {
       const receivedAtMs = this.#clock.now();
       const segment = segmentFromResult(result, receivedAtMs);
       if (segment === undefined) return;
-      const sourceAgeMs =
-        sourceTimeOriginMs === null
-          ? null
-          : Math.max(0, receivedAtMs - sourceTimeOriginMs - segment.sourceEndMs);
-      onTranscript(Object.freeze({ segment, sourceAgeMs }));
+      const observedAgeBasis =
+        sourceTimeOriginMs === null ? "pipeline_clock" : "source_timestamp";
+      const timeOriginMs = sourceTimeOriginMs ?? pipelineTimeOriginMs;
+      if (timeOriginMs === null) return;
+      const observedAgeMs = Math.max(
+        0,
+        receivedAtMs - timeOriginMs - segment.sourceEndMs,
+      );
+      onTranscript(Object.freeze({ segment, observedAgeMs, observedAgeBasis }));
     });
 
     connection.connect();
@@ -281,6 +287,7 @@ export class DeepgramStreamingTranscriber implements StreamingTranscriber {
 
     try {
       await source.run((chunk: AudioChunk) => {
+        pipelineTimeOriginMs ??= chunk.receivedAtMs;
         if (sourceTimeOriginMs === null && chunk.sourceTimestampMs !== null) {
           sourceTimeOriginMs = chunk.sourceTimestampMs;
         }

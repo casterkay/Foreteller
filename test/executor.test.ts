@@ -82,7 +82,13 @@ function orderIntent(overrides: Partial<OrderIntent> = {}): OrderIntent {
 }
 
 function request(overrides: Partial<OrderIntent> = {}): ExecutionRequest {
-  return { intent: orderIntent(overrides), market, book, sourceAgeMs: 100 };
+  return {
+    intent: orderIntent(overrides),
+    market,
+    book,
+    observedAgeMs: 100,
+    observedAgeBasis: "source_timestamp",
+  };
 }
 
 const options: ExecutorOptions = {

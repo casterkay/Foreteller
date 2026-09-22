@@ -134,7 +134,8 @@ export interface ExecutionRequest {
   readonly intent: OrderIntent;
   readonly market: MarketDefinition;
   readonly book: BookSnapshot;
-  readonly sourceAgeMs: number;
+  readonly observedAgeMs: number;
+  readonly observedAgeBasis: "source_timestamp" | "pipeline_clock";
 }
 
 export interface ExecutionResult {

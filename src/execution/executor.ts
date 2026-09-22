@@ -235,11 +235,11 @@ export class SerializedExecutor {
     if (!request.market.acceptingOrders) return "market is not accepting orders";
     if (!request.book.synchronized) return "order book is not synchronized";
     if (
-      !Number.isFinite(request.sourceAgeMs) ||
-      request.sourceAgeMs < 0 ||
-      request.sourceAgeMs > this.options.limits.maximumSourceAgeMs
+      !Number.isFinite(request.observedAgeMs) ||
+      request.observedAgeMs < 0 ||
+      request.observedAgeMs > this.options.limits.maximumSourceAgeMs
     ) {
-      return "source data is stale";
+      return "observed audio data is stale";
     }
     if (request.intent.marketId !== request.market.marketId) return "intent market mismatch";
     if (request.intent.eventId !== request.market.eventId) return "intent event mismatch";
