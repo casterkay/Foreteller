@@ -1,0 +1,58 @@
+.env.example
+  h_0528fe13c98664 7
+MVP_PLAN.md
+  h_0528fe13c98664 3,10-20,81,127-128
+README.md
+  h_0528fe13c98664 1-62
+package.json
+  h_0528fe13c98664 14-15
+src/config.ts
+  h_0528fe13c98664 20,74,113
+src/control/proposal.ts
+  h_0528fe13c98664 125-127
+src/doctor.ts
+  h_0528fe13c98664 9,26,32-64
+src/domain/types.ts
+  h_0528fe13c98664 32
+src/execution/disabled.ts
+  h_0528fe13c98664 1-23
+src/execution/executor.ts
+  h_0528fe13c98664 117,143-153,157-163
+src/execution/index.ts
+  h_0528fe13c98664 17
+src/execution/polymarket.ts
+  h_0528fe13c98664 5,24,44,49-63
+src/main.ts
+  h_0528fe13c98664 1-149
+src/report.ts
+  h_0528fe13c98664 1-83
+src/runtime/index.ts
+  h_0528fe13c98664 1-5
+src/runtime/session.ts
+  h_0528fe13c98664 1-532
+src/storage/index.ts
+  h_0528fe13c98664 8
+src/storage/store.ts
+  h_0528fe13c98664 51-61,389-499
+src/transcript/audio.ts
+  h_0528fe13c98664 2-3,26,64,71,79-81,88-107,110
+src/transcript/deepgram.ts
+  h_0528fe13c98664 106-125,292-293,298,301
+test/executor.test.ts
+  h_0528fe13c98664 252-273
+test/report.test.ts
+  h_0528fe13c98664 1-81
+test/transcript/deepgram.test.ts
+  h_0528fe13c98664 107-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dea2cc9bf649b106a1b11af5a083b81e647531f1",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
