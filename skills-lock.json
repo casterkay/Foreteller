@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "typesafe-ai": {
+      "source": "typesafe-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/typesafe-ai/SKILL.md",
+      "computedHash": "9cd84c5e535dec8dec59917c110f9c00b4a61faadb86b432ec7e41051170af12"
+    },
+    "web3-polymarket": {
+      "source": "Polymarket/agent-skills",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "281e0a43cc1a5864ffb95f69c9e193964c1b332af6fded869280527a9d9b565b"
+    }
+  }
+}
