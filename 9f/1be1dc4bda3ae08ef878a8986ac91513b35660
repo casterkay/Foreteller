@@ -1,0 +1,16 @@
+src/execution/executor.ts
+  h_0528fe13c98664 267-272
+test/executor.test.ts
+  h_0528fe13c98664 274-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9f1be1dc4bda3ae08ef878a8986ac91513b35660",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
