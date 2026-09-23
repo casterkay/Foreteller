@@ -38,6 +38,22 @@ describe("PolymarketEventProposer", () => {
 
     await expect(proposer.propose("event-1")).rejects.toThrow(/no unambiguous single-mention/);
   });
+
+  it("resolves a Polymarket event URL before loading market details", async () => {
+    const client = fakeClient(event());
+    let requestedUrl: string | undefined;
+    client.fetchEventByUrl = async ({ url }) => {
+      requestedUrl = url;
+      return event();
+    };
+    const proposer = new PolymarketEventProposer(client);
+    const eventUrl = "https://polymarket.com/event/speech";
+
+    const proposal = await proposer.propose(eventUrl);
+
+    expect(requestedUrl).toBe(eventUrl);
+    expect(proposal.eventId).toBe("event-1");
+  });
 });
 
 function event(): Event {
