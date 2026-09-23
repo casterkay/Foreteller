@@ -1,0 +1,20 @@
+src/control/proposal.ts
+  h_0528fe13c98664 68,108-109
+src/control/session.ts
+  h_0528fe13c98664 81,105,219-224
+test/control/proposal.test.ts
+  h_0528fe13c98664 69
+test/control/session.test.ts
+  h_0528fe13c98664 65-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6daa1abf3dc4e2f2604b2d366f56e89b85f2009d",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
