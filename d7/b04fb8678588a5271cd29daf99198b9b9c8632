@@ -1,0 +1,16 @@
+src/forecast/jev.ts
+  h_0528fe13c98664 56,311-313
+test/forecast/jev.test.ts
+  h_0528fe13c98664 177-195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d7b04fb8678588a5271cd29daf99198b9b9c8632",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  }
+}
