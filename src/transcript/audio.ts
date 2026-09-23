@@ -1,9 +1,12 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { promisify } from "node:util";
 
 import type { Clock } from "../core/clock.js";
 import { systemClock } from "../core/clock.js";
+
+const executeFile = promisify(execFile);
 
 export interface AudioChunk {
   readonly data: Uint8Array;
@@ -44,12 +47,12 @@ function appendTail(current: string, chunk: Buffer): string {
   return `${current}${chunk.toString("utf8")}`.slice(-4_096);
 }
 
-function stop(process: ChildProcess): void {
-  if (process.exitCode === null && process.signalCode === null) {
-    process.kill("SIGTERM");
+function stop(child: ChildProcess): void {
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGTERM");
     const forceKill = setTimeout(() => {
-      if (process.exitCode === null && process.signalCode === null) {
-        process.kill("SIGKILL");
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
       }
     }, 2_000);
     forceKill.unref();
@@ -80,17 +83,33 @@ export class YoutubeAudioSource implements AudioSource {
       await mkdir(dirname(this.#archivePath), { recursive: true });
     }
 
-    const ytDlp = spawn(
+    const { stdout } = await executeFile(
       this.#ytDlpPath,
-      ["--no-playlist", "--quiet", "-f", "bestaudio", "-o", "-", this.#videoUrl],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      [
+        "--no-playlist",
+        "--quiet",
+        "-f",
+        "bestaudio/best[height<=480]/best",
+        "--get-url",
+        this.#videoUrl,
+      ],
+      { timeout: 20_000, maxBuffer: 64 * 1024, signal },
     );
+    const mediaUrls = stdout.split("\n").map((value) => value.trim()).filter(Boolean);
+    if (mediaUrls.length !== 1) {
+      throw new Error("yt-dlp did not resolve exactly one media URL");
+    }
+    const mediaUrl = mediaUrls[0];
+    if (mediaUrl === undefined) throw new Error("yt-dlp did not resolve a media URL");
+
     const ffmpegArguments = [
       "-hide_banner",
       "-loglevel",
       "error",
+      "-allowed_extensions",
+      "ALL",
       "-i",
-      "pipe:0",
+      mediaUrl,
       "-vn",
       "-map",
       "0:a:0",
@@ -108,43 +127,25 @@ export class YoutubeAudioSource implements AudioSource {
     const ffmpeg = spawn(
       this.#ffmpegPath,
       ffmpegArguments,
-      { stdio: ["pipe", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"] },
     );
 
-    ytDlp.stdout.pipe(ffmpeg.stdin);
-
     await new Promise<void>((resolve, reject) => {
-      let ytDlpClosed = false;
-      let ffmpegClosed = false;
       let failure: Error | undefined;
-      let ytDlpStderr = "";
       let ffmpegStderr = "";
 
       const cleanup = (): void => {
         signal.removeEventListener("abort", onAbort);
-        ytDlp.stdout.unpipe(ffmpeg.stdin);
-      };
-      const finish = (): void => {
-        if (!ytDlpClosed || !ffmpegClosed) return;
-        cleanup();
-        if (failure !== undefined) reject(failure);
-        else if (signal.aborted) reject(signal.reason);
-        else resolve();
       };
       const fail = (error: Error): void => {
         failure ??= error;
-        stop(ytDlp);
         stop(ffmpeg);
       };
       const onAbort = (): void => {
-        stop(ytDlp);
         stop(ffmpeg);
       };
 
       signal.addEventListener("abort", onAbort, { once: true });
-      ytDlp.stderr.on("data", (chunk: Buffer) => {
-        ytDlpStderr = appendTail(ytDlpStderr, chunk);
-      });
       ffmpeg.stderr.on("data", (chunk: Buffer) => {
         ffmpegStderr = appendTail(ffmpegStderr, chunk);
       });
@@ -166,23 +167,18 @@ export class YoutubeAudioSource implements AudioSource {
           );
         }
       });
-      ytDlp.on("error", fail);
       ffmpeg.on("error", fail);
-      ytDlp.on("close", (code, processSignal) => {
-        ytDlpClosed = true;
-        if (!signal.aborted && code !== 0) {
-          fail(processFailure(this.#ytDlpPath, code, processSignal, ytDlpStderr));
-        }
-        finish();
-      });
       ffmpeg.on("close", (code, processSignal) => {
-        ffmpegClosed = true;
+        cleanup();
         if (!signal.aborted && code !== 0) {
-          fail(processFailure(this.#ffmpegPath, code, processSignal, ffmpegStderr));
-        } else if (!ytDlpClosed) {
-          stop(ytDlp);
+          reject(processFailure(this.#ffmpegPath, code, processSignal, ffmpegStderr));
+        } else if (failure !== undefined) {
+          reject(failure);
+        } else if (signal.aborted) {
+          reject(signal.reason);
+        } else {
+          resolve();
         }
-        finish();
       });
     });
   }
