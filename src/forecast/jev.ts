@@ -53,6 +53,7 @@ export type ForecastSkipReason =
   | "in_flight"
   | "minimum_interval"
   | "no_unmatched_markets"
+  | "event_ended"
   | "stale_snapshot";
 
 export type ForecastBatchResult =
@@ -306,6 +307,9 @@ export class JevForecaster {
     }
     if (now - snapshot.snapshotAtMs > this.#maximumForecastAgeMs) {
       return Object.freeze({ status: "skipped", reason: "stale_snapshot" });
+    }
+    if (snapshot.estimatedRemainingMs <= 0) {
+      return Object.freeze({ status: "skipped", reason: "event_ended" });
     }
 
     const { request, questionMarketIds } = createRequest(snapshot, this.#model);

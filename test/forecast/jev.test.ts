@@ -174,6 +174,25 @@ describe("JevForecaster", () => {
     ).rejects.toBeInstanceOf(InvalidJevResponseError);
   });
 
+  it("does not request forecasts after the event window ends", async () => {
+    const request = vi.fn(async () => response());
+    const forecaster = new JevForecaster({
+      transport: { request },
+      timeoutMs: 1_000,
+      maximumForecastAgeMs: 20_000,
+      minimumIntervalMs: 0,
+      clock: { now: () => 1_100 },
+    });
+
+    await expect(
+      forecaster.forecast(
+        snapshot({ eventPhase: "ended", estimatedRemainingMs: 0 }),
+        new AbortController().signal,
+      ),
+    ).resolves.toEqual({ status: "skipped", reason: "event_ended" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("skips stale inputs and discards responses that become stale", async () => {
     let now = 2_001;
     let calls = 0;
