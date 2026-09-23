@@ -1,0 +1,37 @@
+.env.example
+  s_7cee6b3e3698cf::t_ee542bb1c5adee 17
+package.json
+  s_7cee6b3e3698cf::t_92fbf6962b76c0 14
+src/config.ts
+  s_7cee6b3e3698cf::t_8bb41c5c6133ef 18,74,114
+src/control/proposal.ts
+  s_7cee6b3e3698cf::t_2490dfc3567a2f 27-31,35-36,42,45-51
+src/forecast/jev.ts
+  s_7cee6b3e3698cf::t_984a9ff55b3b55 10-22,31,35,222-229,327
+src/main.ts
+  s_7cee6b3e3698cf::t_a2ff57f8933c93 14,47-51,53,74-75,147,158,167-223
+src/market/polymarket.ts
+  s_7cee6b3e3698cf::t_3b1b48fb87c30a 16,25
+src/panel/index.ts
+  s_7cee6b3e3698cf::t_4dd4ab8b3a7226 1-4
+src/panel/state.ts
+  s_7cee6b3e3698cf::t_fa1036c56afdd3 1-119
+src/panel/types.ts
+  s_7cee6b3e3698cf::t_dfb74037b6f588 1-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5970316560b6cb543f383af408e4913a6b6ba4f3",
+  "prompts": {},
+  "sessions": {
+    "s_7cee6b3e3698cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ceba-51dc-7ea2-bfab-766191aeaae0",
+        "model": "unknown"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
