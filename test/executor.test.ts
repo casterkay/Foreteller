@@ -271,6 +271,25 @@ describe("SerializedExecutor", () => {
     expect(trader.submissions).toHaveLength(1);
     store.close();
   });
+
+  it("rejects an intent created outside the qualifying event window", async () => {
+    const store = createStore();
+    const trader = new TraderStub();
+    const executor = new SerializedExecutor(store, trader, options, {
+      now: () => timestamp + 60_000,
+    });
+    await executor.reconcileStartup();
+
+    await expect(
+      executor.execute(request({ createdAtMs: timestamp + 60_000 })),
+    ).resolves.toEqual({
+      intentId: "intent-1",
+      status: "failed",
+      reason: "intent is outside the qualifying event window",
+    });
+    expect(trader.submissions).toHaveLength(0);
+    store.close();
+  });
 });
 
 describe("roundPriceDown", () => {

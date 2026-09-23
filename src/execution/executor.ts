@@ -264,6 +264,12 @@ export class SerializedExecutor {
     if (request.intent.eventId !== request.market.eventId) return "intent event mismatch";
     if (request.intent.tokenId !== request.book.tokenId) return "intent token mismatch";
     if (request.book.tickSize !== request.market.tickSize) return "book tick size is stale";
+    if (
+      request.intent.createdAtMs < request.market.term.windowStartMs ||
+      request.intent.createdAtMs >= request.market.term.windowEndMs
+    ) {
+      return "intent is outside the qualifying event window";
+    }
     return undefined;
   }
 
