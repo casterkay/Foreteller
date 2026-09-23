@@ -95,6 +95,17 @@ describe("LiveSessionRuntime", () => {
     harness.store.close();
   });
 
+  it("preserves an operator halt while waiting for the feed to start", async () => {
+    const harness = createHarness({ liveStatus: "is_upcoming" });
+
+    await harness.runtime.start(harness.binding);
+    await harness.runtime.halt(harness.binding);
+
+    await expect(harness.runtime.status(harness.binding)).resolves.toBe("halted");
+    expect(harness.store.sessionFacts(harness.binding.sessionId).status).toBe("waiting");
+    harness.store.close();
+  });
+
   it("applies a transcript hit before a forecast that was already in flight", async () => {
     const forecaster = new ControlledForecaster();
     const harness = createHarness({ forecaster });
@@ -142,6 +153,7 @@ function createHarness(options: {
   readonly expectedEndMs?: number;
   readonly reconcileIntervalMs?: number;
   readonly forecaster?: SessionForecaster;
+  readonly liveStatus?: "is_live" | "is_upcoming";
 } = {}) {
   const now = Date.now();
   const binding = sessionBinding(now, options.expectedEndMs ?? now + 60_000);
@@ -172,7 +184,7 @@ function createHarness(options: {
         videoId: binding.videoId,
         title: "Live speech",
         channelId: binding.channelId,
-        liveStatus: "is_live",
+        liveStatus: options.liveStatus ?? "is_live",
       }),
     },
     verifier: { verify: async () => true },

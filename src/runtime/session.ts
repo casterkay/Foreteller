@@ -149,6 +149,7 @@ export class LiveSessionRuntime {
     const { binding, controller } = active;
     const signal = controller.signal;
     const live = await this.waitForLive(binding, signal);
+    if (signal.aborted) return;
     if (!live) {
       active.status = "ended";
       this.options.store.recordSessionStatus(binding.sessionId, "ended", Date.now());
