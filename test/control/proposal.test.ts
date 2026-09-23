@@ -66,7 +66,7 @@ function market(
     conditionId: `condition-${id}`,
     groupItemTitle,
     question,
-    description: "A single mention resolves YES.",
+    description: "A single mention between market creation and close resolves YES.",
     state: { acceptingOrders: true, startDate, endDate },
     trading: { minimumOrderSize: "1" },
   };

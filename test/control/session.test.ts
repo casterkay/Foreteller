@@ -62,6 +62,21 @@ describe("SessionController", () => {
       .rejects.toThrow(/live or upcoming/);
   });
 
+  it("does not accept an event after its qualifying window", async () => {
+    const expired = {
+      ...proposal("first"),
+      expectedEndMs: timestamp,
+    };
+    const controller = controllerFor({
+      journal: new Journal(),
+      runtime: runtimeStub(),
+      proposer: { propose: async () => expired },
+    });
+
+    await expect(controller.watch("event-1", "https://youtube.test/live", "Jane Doe"))
+      .rejects.toThrow(/window has ended/);
+  });
+
   it("journals live state and releases a naturally ended session", async () => {
     const journal = new Journal();
     const runtime = runtimeStub();

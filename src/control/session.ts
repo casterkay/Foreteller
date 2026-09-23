@@ -78,6 +78,7 @@ export class SessionController implements OperatorCommands {
         this.dependencies.proposer.propose(eventId),
       ]);
       validateLiveVideo(video);
+      validateEventWindow(proposal, this.clock.now());
       this.draft = Object.freeze({
         eventId,
         videoUrl,
@@ -101,6 +102,7 @@ export class SessionController implements OperatorCommands {
         this.draft = undefined;
         throw new Error("Event rules changed. Review a new draft with /watch");
       }
+      validateEventWindow(currentProposal, this.clock.now());
 
       const confirmedAtMs = this.clock.now();
       const binding = Object.freeze({
@@ -211,6 +213,12 @@ export class SessionController implements OperatorCommands {
 function validateLiveVideo(video: YouTubeMetadata): void {
   if (video.liveStatus !== "is_live" && video.liveStatus !== "is_upcoming") {
     throw new Error("YouTube video must be live or upcoming");
+  }
+}
+
+function validateEventWindow(proposal: EventProposal, nowMs: number): void {
+  if (proposal.expectedEndMs <= nowMs) {
+    throw new Error("Event qualifying window has ended");
   }
 }
 

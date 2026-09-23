@@ -65,7 +65,7 @@ function termForMarket(market: Event["markets"][number]): readonly TermSpec[] {
   if (
     market.state.acceptingOrders !== true ||
     title === undefined ||
-    isCountMarket(market.question, market.description)
+    isCountMarket(market.question)
   ) {
     return [];
   }
@@ -105,8 +105,8 @@ function normalizedSimpleTerm(value: string | null | undefined): string | undefi
   return title;
 }
 
-function isCountMarket(question: string | null | undefined, description: string | null | undefined): boolean {
-  return countMarketPattern.test(`${question ?? ""}\n${description ?? ""}`);
+function isCountMarket(question: string | null | undefined): boolean {
+  return countMarketPattern.test(question ?? "");
 }
 
 function parseTimestamp(value: string | null | undefined): number | undefined {
