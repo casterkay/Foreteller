@@ -11,9 +11,19 @@ interface MutablePanelMarket {
   jevUpdatedAtMs: number | null;
 }
 
+export interface PanelSessionStart {
+  readonly mode: Exclude<PanelSnapshot["mode"], null>;
+  readonly title: string;
+  readonly youtubeUrl: string;
+  readonly markets: readonly ForecastMarket[];
+  readonly startedAtMs: number;
+  readonly comparisonCoverage: Exclude<PanelSnapshot["comparisonCoverage"], null>;
+}
+
 export class PanelState {
   private status: PanelSnapshot["status"] = "idle";
   private mode: PanelSnapshot["mode"] = null;
+  private youtubeUrl: string | null = null;
   private title = "Foreteller";
   private startedAtMs: number | null = null;
   private transcriptUpdatedAtMs: number | null = null;
@@ -24,14 +34,11 @@ export class PanelState {
   private readonly forecastCompletions: number[] = [];
 
   public begin(
-    mode: Exclude<PanelSnapshot["mode"], null>,
-    title: string,
-    markets: readonly ForecastMarket[],
-    startedAtMs: number,
-    comparisonCoverage: Exclude<PanelSnapshot["comparisonCoverage"], null>,
+    { mode, title, youtubeUrl, markets, startedAtMs, comparisonCoverage }: PanelSessionStart,
   ): void {
     this.status = "starting";
     this.mode = mode;
+    this.youtubeUrl = youtubeUrl;
     this.title = title;
     this.startedAtMs = startedAtMs;
     this.transcriptUpdatedAtMs = null;
@@ -98,6 +105,7 @@ export class PanelState {
   public reset(): void {
     this.status = "idle";
     this.mode = null;
+    this.youtubeUrl = null;
     this.title = "Foreteller";
     this.startedAtMs = null;
     this.transcriptUpdatedAtMs = null;
@@ -115,6 +123,7 @@ export class PanelState {
     return Object.freeze({
       status: this.status,
       mode: this.mode,
+      youtubeUrl: this.youtubeUrl,
       title: this.title,
       startedAtMs: this.startedAtMs,
       transcriptUpdatedAtMs: this.transcriptUpdatedAtMs,

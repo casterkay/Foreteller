@@ -145,9 +145,17 @@ async function serve(
     shuttingDown = true;
     logger.info("Stopping Foreteller", { reason });
     bot.stop();
-    await panelServer.stop();
-    await runtime.shutdown();
-    store.close();
+
+    // A failure in one teardown step must not orphan the remaining resources.
+    try {
+      await panelServer.stop();
+    } finally {
+      try {
+        await runtime.shutdown();
+      } finally {
+        store.close();
+      }
+    }
   };
   process.once("SIGINT", () => void shutdown("SIGINT"));
   process.once("SIGTERM", () => void shutdown("SIGTERM"));

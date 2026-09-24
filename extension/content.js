@@ -15,7 +15,6 @@ let backendPort = DEFAULT_SETTINGS.serverPort;
 let mountGeneration = 0;
 let mountedVideoUrl;
 const pendingMutations = new Set();
-let navigationCleanup = Promise.resolve();
 
 document.addEventListener("yt-navigate-finish", mountForCurrentVideo);
 mountForCurrentVideo();
@@ -26,21 +25,16 @@ async function mountForCurrentVideo() {
     : undefined;
   if (currentVideoUrl !== undefined && currentVideoUrl === mountedVideoUrl && panel !== undefined) return;
   const generation = ++mountGeneration;
-  const previousPort = backendPort;
-  const shouldStopPreviousSession = mountedVideoUrl !== undefined;
   mountedVideoUrl = undefined;
   clearTimers();
   document.getElementById(ROOT_ID)?.remove();
   panel = undefined;
 
-  if (shouldStopPreviousSession) {
-    const mutations = [...pendingMutations];
-    navigationCleanup = navigationCleanup.then(async () => {
-      await Promise.allSettled(mutations);
-      await apiAtPort(previousPort, "DELETE");
-    });
-  }
-  await navigationCleanup;
+  // Navigation only tears down this panel. The one global session outlives the view,
+  // so ending it stays an explicit operator action or the event horizon; a navigating
+  // tab must never stop monitoring that another tab is displaying. Letting in-flight
+  // mutations settle first keeps a late start from landing after the remount.
+  await Promise.allSettled([...pendingMutations]);
   if (generation !== mountGeneration) return;
 
   if (currentVideoUrl === undefined) return;
@@ -161,6 +155,10 @@ function createPanel(root, generation) {
   }
 
   function render(nextSnapshot) {
+    if (nextSnapshot.youtubeUrl !== null && nextSnapshot.youtubeUrl !== mountedVideoUrl) {
+      renderOtherVideo();
+      return;
+    }
     snapshot = nextSnapshot;
     elements.title.textContent = nextSnapshot.title;
     elements.status.textContent = statusLabel(nextSnapshot.status);
@@ -186,6 +184,26 @@ function createPanel(root, generation) {
       elements.settings.hidden = false;
       elements.settingsButton.setAttribute("aria-expanded", "true");
     }
+    updateFooter();
+  }
+
+  /**
+   * Forecasts for another live source say nothing about this video, so they are
+   * withheld rather than shown against it.
+   */
+  function renderOtherVideo() {
+    snapshot = null;
+    elements.title.textContent = "Foreteller 预言家";
+    elements.status.textContent = "Monitoring another video";
+    elements.status.dataset.status = "idle";
+    elements.coverage.textContent = "Starting here replaces the monitored video";
+    elements.coverage.hidden = false;
+    elements.legend.hidden = true;
+    elements.markets.replaceChildren();
+    elements.stopButton.hidden = true;
+    setError("");
+    elements.settings.hidden = false;
+    elements.settingsButton.setAttribute("aria-expanded", "true");
     updateFooter();
   }
 
@@ -309,16 +327,12 @@ async function refresh(generation, mountedPanel) {
   mountedPanel.render(response.body);
 }
 
-function api(method, body) {
-  return apiAtPort(backendPort, method, body);
-}
-
-async function apiAtPort(port, method, body) {
+async function api(method, body) {
   try {
     return await chrome.runtime.sendMessage({
       type: "foreteller-api",
       method,
-      port,
+      port: backendPort,
       body,
     });
   } catch (error) {

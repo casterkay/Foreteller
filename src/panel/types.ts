@@ -20,6 +20,12 @@ export interface PanelMarketSnapshot {
 export interface PanelSnapshot {
   readonly status: PanelStatus;
   readonly mode: "event" | "custom" | null;
+
+  /**
+   * The live source the single global session is monitoring, so a client can tell
+   * whether these forecasts describe the video it is displaying.
+   */
+  readonly youtubeUrl: string | null;
   readonly title: string;
   readonly startedAtMs: number | null;
   readonly transcriptUpdatedAtMs: number | null;

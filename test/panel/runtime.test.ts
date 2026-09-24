@@ -55,6 +55,7 @@ describe("PanelRuntime", () => {
     expect(latest?.transcriptCutoffMs).toBe(2_000);
     expect(latest?.markets.map((market) => market.term.label)).toEqual(["alpha", "beta"]);
     expect(latest?.matchedMarketIds.size).toBe(0);
+    expect(state.snapshot().youtubeUrl).toBe("https://www.youtube.com/watch?v=video-1");
     expect(state.snapshot().markets.map((market) => market.jevProbability)).toEqual([0.7, 0.7]);
 
     await runtime.stop();
@@ -200,6 +201,51 @@ describe("PanelRuntime", () => {
 
     await vi.waitFor(() => expect(state.snapshot().markets).toHaveLength(0));
     await runtime.stop();
+  });
+
+  it("stops a session whose market subscription never established", async () => {
+    const now = Date.now();
+    const state = new PanelState();
+    const runtime = new PanelRuntime({
+      state,
+      transcriber: new ControlledTranscriber(),
+      forecaster: new RecordingForecaster(),
+      proposer: {
+        propose: async () => ({
+          eventId: "event-1",
+          eventTitle: "Live speech",
+          expectedStartMs: now - 1_000,
+          expectedEndMs: now + 60_000,
+          rulesHash: "rules",
+          markets: [eventMarket(now + 60_000)],
+        }),
+      },
+      videoProbe: { inspect: async () => ({
+        videoId: "video-1",
+        title: "Live speech",
+        channelId: "channel-1",
+        liveStatus: "is_live",
+      }) },
+      subscriberClient: {
+        fetchOrderBook: () => Promise.reject(new Error("not reached")) as Promise<OrderBook>,
+        subscribe: () => new Promise<MarketSubscriptionHandle>(() => undefined),
+      },
+      logger: silentLogger,
+      forecastFallbackMs: 100_000,
+      marketSubscriptionTimeoutMs: 20,
+      createAudioSource: () => unusedAudioSource,
+    });
+    await runtime.configure({
+      youtubeUrl: "https://www.youtube.com/watch?v=video-1",
+      eventUrl: "https://polymarket.com/event/live-speech",
+      customTitle: "",
+      customTerms: [],
+      speaker: "Ada",
+    });
+
+    await runtime.stop();
+
+    expect(state.snapshot().status).toBe("idle");
   });
 
   it("resets state when cancellation lands while the old session is stopping", async () => {

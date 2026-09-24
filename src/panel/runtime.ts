@@ -33,6 +33,9 @@ export interface PanelRuntimeOptions {
   readonly minimumWordConfidence?: number;
   readonly primarySpeaker?: number;
   readonly forecastFallbackMs?: number;
+
+  /** How long the panel tolerates an unresponsive market stream before abandoning it. */
+  readonly marketSubscriptionTimeoutMs?: number;
   readonly createAudioSource?: (videoUrl: string) => AudioSource;
 }
 
@@ -77,13 +80,14 @@ export class PanelRuntime {
         : startedAtMs <= (prepared.eventProposal?.expectedStartMs ?? 0)
           ? "full_event"
           : "partial_event";
-      this.options.state.begin(
-        prepared.mode,
-        prepared.title,
-        prepared.markets,
+      this.options.state.begin({
+        mode: prepared.mode,
+        title: prepared.title,
+        youtubeUrl: configuration.youtubeUrl,
+        markets: prepared.markets,
         startedAtMs,
         comparisonCoverage,
-      );
+      });
       const controller = new AbortController();
       const endTimer = prepared.expectedEndMs === null
         ? undefined
@@ -259,9 +263,13 @@ export class PanelRuntime {
     const marketsByToken = new Map(
       proposal.markets.map((market) => [market.yesTokenId, market] as const),
     );
+    const subscriptionTimeoutMs = this.options.marketSubscriptionTimeoutMs;
     return new MarketBookSubscriber(this.options.subscriberClient, {
       tokenIds: [...marketsByToken.keys()],
       tickSizes: new Map(proposal.markets.map((market) => [market.yesTokenId, market.tickSize])),
+      ...(subscriptionTimeoutMs === undefined
+        ? {}
+        : { startupTimeoutMs: subscriptionTimeoutMs, stopTimeoutMs: subscriptionTimeoutMs }),
       onBook: (book) => {
         const market = marketsByToken.get(book.tokenId);
         if (market === undefined) return;

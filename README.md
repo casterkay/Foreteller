@@ -38,6 +38,11 @@ Enter a Polymarket mentions-event URL to compare the live YES midpoint with Jev'
 probability of a future mention after the latest transcript. Leave the event URL
 empty to use a custom title and terms; custom mode displays only Jev forecasts.
 
+The service monitors one video at a time. Browsing away leaves that monitoring
+running; a panel opened on any other video reports which video is monitored and
+withholds its forecasts. Starting from a different video replaces the monitored
+video, and **Stop** or the event's end is what ends monitoring.
+
 The service defaults to dry run. Set `LIVE_TRADING=true` only after `pnpm doctor`
 passes and the wallet has the required balance and allowances.
 
