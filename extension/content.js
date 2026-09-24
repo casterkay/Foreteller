@@ -13,16 +13,37 @@ let pollTimer;
 let clockTimer;
 let backendPort = DEFAULT_SETTINGS.serverPort;
 let mountGeneration = 0;
+let mountedVideoUrl;
+const pendingMutations = new Set();
+let navigationCleanup = Promise.resolve();
 
 document.addEventListener("yt-navigate-finish", mountForCurrentVideo);
 mountForCurrentVideo();
 
 async function mountForCurrentVideo() {
+  const currentVideoUrl = location.pathname === "/watch" && new URL(location.href).searchParams.has("v")
+    ? canonicalVideoUrl()
+    : undefined;
+  if (currentVideoUrl !== undefined && currentVideoUrl === mountedVideoUrl && panel !== undefined) return;
   const generation = ++mountGeneration;
+  const previousPort = backendPort;
+  const shouldStopPreviousSession = mountedVideoUrl !== undefined;
+  mountedVideoUrl = undefined;
   clearTimers();
   document.getElementById(ROOT_ID)?.remove();
   panel = undefined;
-  if (location.pathname !== "/watch" || !new URL(location.href).searchParams.has("v")) return;
+
+  if (shouldStopPreviousSession) {
+    const mutations = [...pendingMutations];
+    navigationCleanup = navigationCleanup.then(async () => {
+      await Promise.allSettled(mutations);
+      await apiAtPort(previousPort, "DELETE");
+    });
+  }
+  await navigationCleanup;
+  if (generation !== mountGeneration) return;
+
+  if (currentVideoUrl === undefined) return;
 
   const sidebar = await findSidebar();
   if (generation !== mountGeneration || sidebar === null || location.pathname !== "/watch") return;
@@ -32,22 +53,27 @@ async function mountForCurrentVideo() {
   sidebar.prepend(host);
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = template();
-  panel = createPanel(shadow);
-  await panel.loadSettings();
+  const mountedPanel = createPanel(shadow, generation);
+  panel = mountedPanel;
+  await mountedPanel.loadSettings();
   if (generation !== mountGeneration) {
     host.remove();
     return;
   }
-  await refresh();
+  mountedVideoUrl = currentVideoUrl;
+  await refresh(generation, mountedPanel);
   if (generation !== mountGeneration) return;
-  pollTimer = setInterval(refresh, 1_000);
-  clockTimer = setInterval(() => panel?.updateFooter(), 1_000);
+  pollTimer = setInterval(() => void refresh(generation, mountedPanel), 1_000);
+  clockTimer = setInterval(() => {
+    if (generation === mountGeneration) mountedPanel.updateFooter();
+  }, 1_000);
 }
 
-function createPanel(root) {
+function createPanel(root, generation) {
   const elements = {
     title: root.querySelector(".event-title"),
     status: root.querySelector(".connection-status"),
+    coverage: root.querySelector(".coverage-status"),
     legend: root.querySelector(".legend"),
     markets: root.querySelector(".markets"),
     footer: root.querySelector(".footer-status"),
@@ -80,13 +106,17 @@ function createPanel(root) {
     const settings = readSettings();
     backendPort = settings.serverPort;
     await chrome.storage.sync.set({ foretellerSettings: settings });
-    const response = await api("PUT", {
+    if (generation !== mountGeneration) return;
+    const request = api("PUT", {
       youtubeUrl: canonicalVideoUrl(),
       eventUrl: settings.eventUrl,
       customTitle: settings.customTitle,
       customTerms: parseTerms(settings.customTerms),
       speaker: settings.speaker,
     });
+    pendingMutations.add(request);
+    const response = await request.finally(() => pendingMutations.delete(request));
+    if (generation !== mountGeneration) return;
     elements.submitButton.disabled = false;
     elements.submitButton.textContent = "Start forecasting";
     if (!response.ok) {
@@ -99,10 +129,13 @@ function createPanel(root) {
   });
   elements.stopButton.addEventListener("click", async () => {
     elements.stopButton.disabled = true;
-    const response = await api("DELETE");
+    const request = api("DELETE");
+    pendingMutations.add(request);
+    const response = await request.finally(() => pendingMutations.delete(request));
+    if (generation !== mountGeneration) return;
     elements.stopButton.disabled = false;
     if (!response.ok) setError(response.error);
-    else await refresh();
+    else await refresh(generation, { render, setError });
   });
 
   function updateCustomFieldVisibility() {
@@ -132,6 +165,10 @@ function createPanel(root) {
     elements.title.textContent = nextSnapshot.title;
     elements.status.textContent = statusLabel(nextSnapshot.status);
     elements.status.dataset.status = nextSnapshot.status;
+    elements.coverage.textContent = nextSnapshot.comparisonCoverage === "partial_event"
+      ? "Transcript began after the event window opened; edge labels are hidden"
+      : "";
+    elements.coverage.hidden = elements.coverage.textContent.length === 0;
     elements.stopButton.hidden = nextSnapshot.status === "idle";
     const hasPolymarket = nextSnapshot.mode === "event";
     elements.legend.hidden = nextSnapshot.status === "idle";
@@ -139,7 +176,11 @@ function createPanel(root) {
     setError(nextSnapshot.error ?? "");
     elements.markets.replaceChildren();
     for (const market of nextSnapshot.markets) {
-      elements.markets.append(renderMarket(market, hasPolymarket));
+      elements.markets.append(renderMarket(
+        market,
+        hasPolymarket,
+        nextSnapshot.comparisonCoverage === "full_event",
+      ));
     }
     if (nextSnapshot.status === "idle") {
       elements.settings.hidden = false;
@@ -163,6 +204,7 @@ function createPanel(root) {
     setError,
     async loadSettings() {
       const stored = await chrome.storage.sync.get("foretellerSettings");
+      if (generation !== mountGeneration) return;
       const settings = { ...DEFAULT_SETTINGS, ...(stored.foretellerSettings ?? {}) };
       backendPort = settings.serverPort;
       elements.serverPort.value = String(settings.serverPort);
@@ -175,7 +217,7 @@ function createPanel(root) {
   };
 }
 
-function renderMarket(market, hasPolymarket) {
+function renderMarket(market, hasPolymarket, edgeIsComparable) {
   const row = document.createElement("article");
   row.className = `market${hasPolymarket ? "" : " jev-only"}`;
   const header = document.createElement("div");
@@ -185,7 +227,12 @@ function renderMarket(market, hasPolymarket) {
   term.textContent = market.term;
   header.append(term);
 
-  if (hasPolymarket && market.polymarketYesPrice !== null && market.jevProbability !== null) {
+  if (
+    edgeIsComparable &&
+    hasPolymarket &&
+    market.polymarketYesPrice !== null &&
+    market.jevProbability !== null
+  ) {
     const difference = market.jevProbability - market.polymarketYesPrice;
     const edge = document.createElement("span");
     edge.className = `edge${difference >= POSITIVE_EDGE_THRESHOLD ? " considerable" : ""}`;
@@ -252,23 +299,36 @@ function marketAriaLabel(market, hasPolymarket) {
   return parts.join(", ");
 }
 
-async function refresh() {
-  if (panel === undefined) return;
+async function refresh(generation, mountedPanel) {
   const response = await api("GET");
+  if (generation !== mountGeneration) return;
   if (!response.ok) {
-    panel.setError(response.error);
+    mountedPanel.setError(response.error);
     return;
   }
-  panel.render(response.body);
+  mountedPanel.render(response.body);
 }
 
 function api(method, body) {
-  return chrome.runtime.sendMessage({
-    type: "foreteller-api",
-    method,
-    port: backendPort,
-    body,
-  });
+  return apiAtPort(backendPort, method, body);
+}
+
+async function apiAtPort(port, method, body) {
+  try {
+    return await chrome.runtime.sendMessage({
+      type: "foreteller-api",
+      method,
+      port,
+      body,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error
+        ? error.message
+        : "Foreteller extension context is unavailable",
+    };
+  }
 }
 
 function canonicalVideoUrl() {
@@ -324,14 +384,14 @@ function template() {
       button { color:inherit; }
       .header { padding:18px 20px 15px; }
       .top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-      .brand { font-size:11px; font-weight:600; letter-spacing:.16em; color:var(--muted); }
       .settings-button { min-height:36px; padding:7px 9px; border:0; border-radius:8px; background:transparent; }
       .settings-button:hover { background:var(--track); }
-      h2 { margin:12px 0 8px; font-size:18px; line-height:1.35; font-weight:500; overflow-wrap:anywhere; letter-spacing:0; }
+      h2 { min-width:0; margin:0; font-size:18px; line-height:1.35; font-weight:500; overflow-wrap:anywhere; letter-spacing:0; }
       .status-row { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; }
       .connection-status::before { content:""; display:inline-block; width:7px; height:7px; margin-right:7px; border-radius:50%; background:var(--muted); }
       .connection-status[data-status="live"]::before { background:var(--positive); box-shadow:0 0 0 3px color-mix(in srgb,var(--positive) 15%,transparent); }
       .connection-status[data-status="error"]::before { background:#d14b4b; }
+      .coverage-status { margin-top:7px; color:var(--muted); font-size:12px; }
       .legend { display:flex; gap:17px; margin-top:15px; color:var(--muted); font-size:12px; }
       .legend span { display:flex; align-items:center; gap:7px; }
       .legend i { display:block; width:9px; height:9px; background:var(--jev); border-radius:2px; transform:rotate(45deg); }
@@ -370,9 +430,9 @@ function template() {
     </style>
     <div class="panel">
       <header class="header">
-        <div class="top"><span class="brand">FORETELLER</span><button class="settings-button" type="button" aria-expanded="false">Settings</button></div>
-        <h2 class="event-title">Foreteller</h2>
+        <div class="top"><h2 class="event-title">Foreteller 预言家</h2><button class="settings-button" type="button" aria-expanded="false">Settings</button></div>
         <div class="status-row"><span class="connection-status" data-status="idle">Not running</span></div>
+        <div class="coverage-status" hidden></div>
         <div class="legend" hidden><span class="pm-key"><i></i>PM YES</span><span><i></i>Jev forecast</span></div>
       </header>
       <div class="markets"></div>

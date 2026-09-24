@@ -157,6 +157,90 @@ describe("PanelRuntime", () => {
     await vi.waitFor(() => expect(subscriptionClient.closed).toBe(true));
     await runtime.stop();
   });
+
+  it("removes an event market after observing its qualifying mention", async () => {
+    const now = Date.now();
+    const state = new PanelState();
+    const transcriber = new ControlledTranscriber();
+    const runtime = new PanelRuntime({
+      state,
+      transcriber,
+      forecaster: new RecordingForecaster(),
+      proposer: {
+        propose: async () => ({
+          eventId: "event-1",
+          eventTitle: "Live speech",
+          expectedStartMs: now - 1_000,
+          expectedEndMs: now + 60_000,
+          rulesHash: "rules",
+          markets: [eventMarket(now + 60_000)],
+        }),
+      },
+      videoProbe: { inspect: async () => ({
+        videoId: "video-1",
+        title: "Live speech",
+        channelId: "channel-1",
+        liveStatus: "is_live",
+      }) },
+      subscriberClient: new PassiveSubscriptionClient(),
+      logger: silentLogger,
+      forecastFallbackMs: 100_000,
+      createAudioSource: () => unusedAudioSource,
+    });
+    await runtime.configure({
+      youtubeUrl: "https://www.youtube.com/watch?v=video-1",
+      eventUrl: "https://polymarket.com/event/live-speech",
+      customTitle: "",
+      customTerms: [],
+      speaker: "Ada",
+    });
+    expect(state.snapshot().comparisonCoverage).toBe("partial_event");
+
+    transcriber.emit(transcript("alpha", now + 200));
+
+    await vi.waitFor(() => expect(state.snapshot().markets).toHaveLength(0));
+    await runtime.stop();
+  });
+
+  it("resets state when cancellation lands while the old session is stopping", async () => {
+    const state = new PanelState();
+    const transcriber = new BlockingStopTranscriber();
+    const runtime = new PanelRuntime({
+      state,
+      transcriber,
+      forecaster: new RecordingForecaster(),
+      proposer: { propose: () => Promise.reject(new Error("not used")) },
+      videoProbe: { inspect: async () => ({
+        videoId: "video-1",
+        title: "Live speech",
+        channelId: "channel-1",
+        liveStatus: "is_live",
+      }) },
+      subscriberClient: unusedSubscriptionClient,
+      logger: silentLogger,
+      forecastFallbackMs: 100_000,
+      createAudioSource: () => unusedAudioSource,
+    });
+    const configuration = {
+      youtubeUrl: "https://www.youtube.com/watch?v=video-1",
+      eventUrl: "",
+      customTitle: "First",
+      customTerms: ["alpha"],
+      speaker: "Ada",
+    } as const;
+    await runtime.configure(configuration);
+    const controller = new AbortController();
+    const replacement = runtime.configure(
+      { ...configuration, customTitle: "Replacement" },
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(transcriber.aborted).toBe(true));
+    controller.abort(new Error("client disconnected"));
+    transcriber.release();
+
+    await expect(replacement).rejects.toThrow(/client disconnected/);
+    expect(state.snapshot().status).toBe("idle");
+  });
 });
 
 class ControlledTranscriber implements StreamingTranscriber {
@@ -202,12 +286,36 @@ class RecordingForecaster {
   }
 }
 
+class BlockingStopTranscriber implements StreamingTranscriber {
+  public aborted = false;
+  private resolveRun: (() => void) | undefined;
+
+  public run(
+    _source: AudioSource,
+    _onTranscript: (event: TranscriptEvent) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    signal.addEventListener("abort", () => { this.aborted = true; }, { once: true });
+    return new Promise((resolve) => { this.resolveRun = resolve; });
+  }
+
+  public release(): void {
+    this.resolveRun?.();
+  }
+}
+
 function transcript(text: string, sourceEndMs: number): TranscriptEvent {
   return Object.freeze({
     segment: Object.freeze({
       id: text,
       text,
-      words: Object.freeze([]),
+      words: Object.freeze([Object.freeze({
+        text,
+        startMs: sourceEndMs - 100,
+        endMs: sourceEndMs,
+        confidence: 0.99,
+        speaker: 0,
+      })]),
       sourceStartMs: sourceEndMs - 100,
       sourceEndMs,
       receivedAtMs: Date.now(),

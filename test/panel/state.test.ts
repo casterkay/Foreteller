@@ -19,7 +19,7 @@ const market: ForecastMarket = Object.freeze({
 describe("PanelState", () => {
   it("publishes immutable snapshots without inventing a PM price", () => {
     const state = new PanelState();
-    state.begin("custom", "Test event", [market], 1_000);
+    state.begin("custom", "Test event", [market], 1_000, "jev_only");
     state.markLive();
     state.recordTranscript(2_000);
     state.recordForecasts([
@@ -48,7 +48,7 @@ describe("PanelState", () => {
 
   it("computes update frequency from successful forecast completions", () => {
     const state = new PanelState();
-    state.begin("event", "Test event", [market], 1_000);
+    state.begin("event", "Test event", [market], 1_000, "full_event");
     const forecast = Object.freeze({
       marketId: "market-1",
       probability: 0.6,
@@ -61,5 +61,22 @@ describe("PanelState", () => {
     state.recordForecasts([forecast], 7_000);
 
     expect(state.snapshot().forecastUpdateHz).toBeCloseTo(0.2);
+  });
+
+  it("ignores late updates for a retired market but rejects unknown markets", () => {
+    const state = new PanelState();
+    state.begin("event", "Test event", [market], 1_000, "full_event");
+    state.removeMarket("market-1");
+
+    expect(() => state.recordPrice("market-1", 0.8, 2_000)).not.toThrow();
+    expect(() => state.recordForecasts([Object.freeze({
+      marketId: "market-1",
+      probability: 0.8,
+      model: "jev-test",
+      snapshotAtMs: 1_900,
+      latencyMs: 100,
+    })], 2_000)).not.toThrow();
+    expect(() => state.recordPrice("unknown", 0.8, 2_000)).toThrow(/Unknown panel market/);
+    expect(state.snapshot().forecastUpdateHz).toBe(0);
   });
 });

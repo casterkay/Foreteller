@@ -24,6 +24,7 @@ export interface PanelSnapshot {
   readonly startedAtMs: number | null;
   readonly transcriptUpdatedAtMs: number | null;
   readonly forecastUpdateHz: number;
+  readonly comparisonCoverage: "full_event" | "partial_event" | "jev_only" | null;
   readonly markets: readonly PanelMarketSnapshot[];
   readonly error: string | null;
 }

@@ -18,7 +18,9 @@ export class PanelState {
   private startedAtMs: number | null = null;
   private transcriptUpdatedAtMs: number | null = null;
   private error: string | null = null;
+  private comparisonCoverage: PanelSnapshot["comparisonCoverage"] = null;
   private readonly markets = new Map<string, MutablePanelMarket>();
+  private readonly retiredMarketIds = new Set<string>();
   private readonly forecastCompletions: number[] = [];
 
   public begin(
@@ -26,6 +28,7 @@ export class PanelState {
     title: string,
     markets: readonly ForecastMarket[],
     startedAtMs: number,
+    comparisonCoverage: Exclude<PanelSnapshot["comparisonCoverage"], null>,
   ): void {
     this.status = "starting";
     this.mode = mode;
@@ -33,7 +36,9 @@ export class PanelState {
     this.startedAtMs = startedAtMs;
     this.transcriptUpdatedAtMs = null;
     this.error = null;
+    this.comparisonCoverage = comparisonCoverage;
     this.markets.clear();
+    this.retiredMarketIds.clear();
     this.forecastCompletions.length = 0;
     for (const market of markets) {
       this.markets.set(market.marketId, {
@@ -56,17 +61,22 @@ export class PanelState {
   }
 
   public recordPrice(marketId: string, price: number | null, receivedAtMs: number): void {
-    const market = this.requireMarket(marketId);
+    const market = this.activeMarket(marketId);
+    if (market === undefined) return;
     market.polymarketYesPrice = price;
     market.polymarketUpdatedAtMs = receivedAtMs;
   }
 
   public recordForecasts(forecasts: readonly ForecastAnswer[], completedAtMs: number): void {
+    let updated = false;
     for (const forecast of forecasts) {
-      const market = this.requireMarket(forecast.marketId);
+      const market = this.activeMarket(forecast.marketId);
+      if (market === undefined) continue;
       market.jevProbability = forecast.probability;
       market.jevUpdatedAtMs = completedAtMs;
+      updated = true;
     }
+    if (!updated) return;
     this.forecastCompletions.push(completedAtMs);
     if (this.forecastCompletions.length > 8) this.forecastCompletions.shift();
   }
@@ -80,6 +90,11 @@ export class PanelState {
     this.status = "ended";
   }
 
+  public removeMarket(marketId: string): void {
+    if (!this.markets.delete(marketId)) throw new Error(`Unknown panel market ${marketId}`);
+    this.retiredMarketIds.add(marketId);
+  }
+
   public reset(): void {
     this.status = "idle";
     this.mode = null;
@@ -87,7 +102,9 @@ export class PanelState {
     this.startedAtMs = null;
     this.transcriptUpdatedAtMs = null;
     this.error = null;
+    this.comparisonCoverage = null;
     this.markets.clear();
+    this.retiredMarketIds.clear();
     this.forecastCompletions.length = 0;
   }
 
@@ -102,6 +119,7 @@ export class PanelState {
       startedAtMs: this.startedAtMs,
       transcriptUpdatedAtMs: this.transcriptUpdatedAtMs,
       forecastUpdateHz: this.forecastUpdateHz(),
+      comparisonCoverage: this.comparisonCoverage,
       markets,
       error: this.error,
     });
@@ -115,9 +133,9 @@ export class PanelState {
     return (this.forecastCompletions.length - 1) / ((last - first) / 1_000);
   }
 
-  private requireMarket(marketId: string): MutablePanelMarket {
+  private activeMarket(marketId: string): MutablePanelMarket | undefined {
     const market = this.markets.get(marketId);
-    if (market === undefined) throw new Error(`Unknown panel market ${marketId}`);
-    return market;
+    if (market !== undefined || this.retiredMarketIds.has(marketId)) return market;
+    throw new Error(`Unknown panel market ${marketId}`);
   }
 }

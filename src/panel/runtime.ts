@@ -10,6 +10,7 @@ import {
 } from "../market/subscription.js";
 import type { BookState } from "../market/types.js";
 import {
+  TranscriptMatcher,
   YoutubeAudioSource,
   type AudioSource,
   type StreamingTranscriber,
@@ -29,6 +30,8 @@ export interface PanelRuntimeOptions {
   readonly forecaster: SessionForecaster;
   readonly subscriberClient: MarketSubscriptionClient;
   readonly logger: Logger;
+  readonly minimumWordConfidence?: number;
+  readonly primarySpeaker?: number;
   readonly forecastFallbackMs?: number;
   readonly createAudioSource?: (videoUrl: string) => AudioSource;
 }
@@ -64,9 +67,23 @@ export class PanelRuntime {
       const prepared = await withCancellation(this.prepare(configuration), signal);
       signal.throwIfAborted();
       await this.stopActive();
-      signal.throwIfAborted();
+      if (signal.aborted) {
+        this.options.state.reset();
+        signal.throwIfAborted();
+      }
       const startedAtMs = Date.now();
-      this.options.state.begin(prepared.mode, prepared.title, prepared.markets, startedAtMs);
+      const comparisonCoverage = prepared.mode === "custom"
+        ? "jev_only"
+        : startedAtMs <= (prepared.eventProposal?.expectedStartMs ?? 0)
+          ? "full_event"
+          : "partial_event";
+      this.options.state.begin(
+        prepared.mode,
+        prepared.title,
+        prepared.markets,
+        startedAtMs,
+        comparisonCoverage,
+      );
       const controller = new AbortController();
       const endTimer = prepared.expectedEndMs === null
         ? undefined
@@ -138,9 +155,23 @@ export class PanelRuntime {
     let transcriptCutoffMs = startedAtMs;
     let forecastTask: Promise<void> | undefined;
     let forecastQueued = false;
+    const matcher = session.eventProposal === null
+      ? undefined
+      : new TranscriptMatcher(
+          session.eventProposal.markets.map((market) => market.term),
+          {
+            minimumWordConfidence: this.options.minimumWordConfidence ?? 0.8,
+            primarySpeaker: this.options.primarySpeaker ?? 0,
+          },
+        );
 
     const runForecast = async (): Promise<void> => {
       if (signal.aborted || recentTranscript.length === 0) return;
+      const matchedMarketIds = matcher?.matchedMarketIds ?? new Set<string>();
+      const activeMarkets = session.markets.filter(
+        (market) => !matchedMarketIds.has(market.marketId),
+      );
+      if (activeMarkets.length === 0) return;
       const now = Date.now();
       const snapshot: ForecastSnapshot = Object.freeze({
         snapshotAtMs: now,
@@ -155,8 +186,8 @@ export class PanelRuntime {
         transcriptCutoffMs,
         recentTranscript: recentTranscript.join(" "),
         earlierSummary: "",
-        markets: session.markets,
-        matchedMarketIds: new Set<string>(),
+        markets: activeMarkets,
+        matchedMarketIds,
       });
       const result = await this.options.forecaster.forecast(snapshot, signal);
       if (result.status === "completed" && !signal.aborted) {
@@ -202,6 +233,10 @@ export class PanelRuntime {
         audioSource,
         (event) => {
           if (!event.segment.isFinal || signal.aborted) return;
+          const transcriptUpdate = matcher?.ingest(event.segment);
+          for (const hit of transcriptUpdate?.hits ?? []) {
+            this.options.state.removeMarket(hit.marketId);
+          }
           transcriptCutoffMs = event.segment.sourceEndMs;
           recentTranscript.push(event.segment.text);
           while (recentTranscript.join(" ").length > 8_000) recentTranscript.shift();

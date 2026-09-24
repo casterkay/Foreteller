@@ -72,7 +72,6 @@ async function serve(
   const proposer = new PolymarketEventProposer(readClient);
   const videoProbe = new YouTubeProbe();
   const panelServer = createPanelServer(config, logger, proposer, videoProbe);
-  await panelServer.start();
   const trader = config.liveTrading
     ? await createPolymarketVenueTrader(config)
     : new DisabledVenueTrader();
@@ -137,6 +136,8 @@ async function serve(
     controller,
     logger,
   );
+
+  await panelServer.start();
 
   let shuttingDown = false;
   const shutdown = async (reason: string): Promise<void> => {
@@ -211,6 +212,8 @@ function createPanelServer(
     }),
     subscriberClient: createPolymarketSubscriptionClient(),
     logger,
+    minimumWordConfidence: config.limits.minimumWordConfidence,
+    primarySpeaker: config.deepgramPrimarySpeaker,
   });
   return new PanelServer({
     runtime,
