@@ -1,0 +1,33 @@
+extension/content.js
+  s_7197f762a9e449::t_7c5d5234487c52 527
+  s_7197f762a9e449::t_8977d798ed849e 89-99
+  s_7197f762a9e449::t_af512ea612674c 319,321-328
+  s_7197f762a9e449::t_8ff3bcec7bf913 490-493
+  s_7197f762a9e449::t_c9ddda5db76f5a 480
+  s_7197f762a9e449::t_8df81c5e617c57 485
+  s_7197f762a9e449::t_3fbc8dc94fcf55 290-293
+  s_7197f762a9e449::t_8df2ebdf693d1c 341
+  s_7197f762a9e449::t_a42bcb33eb6f28 361-362,369-370
+  s_7197f762a9e449::t_a974fa539fd29e 371-372
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2c9832a957d427369a0876f4c87cf7dba2b76672",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  },
+  "sessions": {
+    "s_7197f762a9e449": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8cecf914-4a97-42cd-b2bb-05a5e153fc0d",
+        "model": "deepseek-v4-pro"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
