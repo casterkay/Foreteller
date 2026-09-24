@@ -34,7 +34,6 @@ describe("PanelRuntime", () => {
       },
       subscriberClient: unusedSubscriptionClient,
       logger: silentLogger,
-      sessionDataDirectory: "/tmp/foreteller-panel-test",
       forecastFallbackMs: 100_000,
       createAudioSource: () => unusedAudioSource,
     });
@@ -58,6 +57,104 @@ describe("PanelRuntime", () => {
     expect(latest?.matchedMarketIds.size).toBe(0);
     expect(state.snapshot().markets.map((market) => market.jevProbability)).toEqual([0.7, 0.7]);
 
+    await runtime.stop();
+  });
+
+  it("does not replace the active session after configuration is cancelled", async () => {
+    const state = new PanelState();
+    const transcriber = new ControlledTranscriber();
+    let resolveInspection: (() => void) | undefined;
+    let inspectionCount = 0;
+    const runtime = new PanelRuntime({
+      state,
+      transcriber,
+      forecaster: new RecordingForecaster(),
+      proposer: { propose: () => Promise.reject(new Error("not used")) },
+      videoProbe: {
+        inspect: async () => {
+          inspectionCount += 1;
+          if (inspectionCount > 1) {
+            await new Promise<void>((resolve) => { resolveInspection = resolve; });
+          }
+          return {
+            videoId: "video-1",
+            title: "Live speech",
+            channelId: "channel-1",
+            liveStatus: "is_live" as const,
+          };
+        },
+      },
+      subscriberClient: unusedSubscriptionClient,
+      logger: silentLogger,
+      forecastFallbackMs: 100_000,
+      createAudioSource: () => unusedAudioSource,
+    });
+    const configuration = {
+      youtubeUrl: "https://www.youtube.com/watch?v=video-1",
+      eventUrl: "",
+      customTitle: "Live speech",
+      customTerms: ["alpha"],
+      speaker: "Ada",
+    } as const;
+    await runtime.configure(configuration);
+    const controller = new AbortController();
+    const replacement = runtime.configure(
+      { ...configuration, customTitle: "Replacement" },
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(resolveInspection).toBeDefined());
+    controller.abort(new Error("client disconnected"));
+    resolveInspection?.();
+
+    await expect(replacement).rejects.toThrow(/client disconnected/);
+    expect(state.snapshot().title).toBe("Live speech");
+    expect(state.snapshot().status).toBe("live");
+    await runtime.stop();
+  });
+
+  it("ends an event session at the Polymarket horizon", async () => {
+    const now = Date.now();
+    const state = new PanelState();
+    const transcriber = new ControlledTranscriber();
+    const subscriptionClient = new PassiveSubscriptionClient();
+    const runtime = new PanelRuntime({
+      state,
+      transcriber,
+      forecaster: new RecordingForecaster(),
+      proposer: {
+        propose: async () => ({
+          eventId: "event-1",
+          eventTitle: "Live speech",
+          expectedStartMs: now - 1_000,
+          expectedEndMs: now + 50,
+          rulesHash: "rules",
+          markets: [eventMarket(now + 50)],
+        }),
+      },
+      videoProbe: {
+        inspect: async () => ({
+          videoId: "video-1",
+          title: "Live speech",
+          channelId: "channel-1",
+          liveStatus: "is_live",
+        }),
+      },
+      subscriberClient: subscriptionClient,
+      logger: silentLogger,
+      forecastFallbackMs: 100_000,
+      createAudioSource: () => unusedAudioSource,
+    });
+
+    await runtime.configure({
+      youtubeUrl: "https://www.youtube.com/watch?v=video-1",
+      eventUrl: "https://polymarket.com/event/live-speech",
+      customTitle: "",
+      customTerms: [],
+      speaker: "Ada",
+    });
+
+    await vi.waitFor(() => expect(state.snapshot().status).toBe("ended"));
+    await vi.waitFor(() => expect(subscriptionClient.closed).toBe(true));
     await runtime.stop();
   });
 });
@@ -129,6 +226,62 @@ const unusedSubscriptionClient: MarketSubscriptionClient = Object.freeze({
   fetchOrderBook: () => Promise.reject(new Error("not used")) as Promise<OrderBook>,
   subscribe: () => Promise.reject(new Error("not used")) as Promise<MarketSubscriptionHandle>,
 });
+
+class PassiveSubscriptionClient implements MarketSubscriptionClient {
+  public closed = false;
+  private resolveNext: (() => void) | undefined;
+
+  public fetchOrderBook(): Promise<OrderBook> {
+    return Promise.resolve({
+      assetId: "yes-token",
+      bids: [{ price: "0.49", size: "10" }],
+      asks: [{ price: "0.51", size: "10" }],
+      tickSize: "0.01",
+      timestamp: Date.now(),
+    } as unknown as OrderBook);
+  }
+
+  public subscribe(): Promise<MarketSubscriptionHandle> {
+    return Promise.resolve({
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          await new Promise<void>((resolve) => { this.resolveNext = resolve; });
+          return { done: true, value: undefined };
+        },
+      }),
+      close: () => {
+        this.closed = true;
+        this.resolveNext?.();
+        return Promise.resolve();
+      },
+    });
+  }
+}
+
+function eventMarket(expectedEndMs: number) {
+  return Object.freeze({
+    eventId: "event-1",
+    marketId: "market-1",
+    question: "Will Ada say alpha?",
+    description: "One qualifying mention of alpha.",
+    yesTokenId: "yes-token",
+    noTokenId: "no-token",
+    tickSize: 0.01,
+    minimumOrderSize: 1,
+    negRisk: false,
+    acceptingOrders: true,
+    feeRate: 0,
+    term: Object.freeze({
+      marketId: "market-1",
+      label: "alpha",
+      acceptedForms: Object.freeze(["alpha"]),
+      excludedForms: Object.freeze([]),
+      speakerScope: "primary" as const,
+      windowStartMs: expectedEndMs - 60_000,
+      windowEndMs: expectedEndMs,
+    }),
+  });
+}
 
 const silentLogger: Logger = Object.freeze({
   debug: () => undefined,

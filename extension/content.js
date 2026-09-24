@@ -1,6 +1,7 @@
 const ROOT_ID = "foreteller-youtube-panel";
 const POSITIVE_EDGE_THRESHOLD = 0.1;
 const DEFAULT_SETTINGS = Object.freeze({
+  serverPort: 4318,
   eventUrl: "",
   customTitle: "Live mention forecast",
   customTerms: "Artificial intelligence\nEconomy\nOne more thing",
@@ -10,18 +11,21 @@ const DEFAULT_SETTINGS = Object.freeze({
 let panel;
 let pollTimer;
 let clockTimer;
+let backendPort = DEFAULT_SETTINGS.serverPort;
+let mountGeneration = 0;
 
 document.addEventListener("yt-navigate-finish", mountForCurrentVideo);
 mountForCurrentVideo();
 
 async function mountForCurrentVideo() {
+  const generation = ++mountGeneration;
   clearTimers();
   document.getElementById(ROOT_ID)?.remove();
   panel = undefined;
   if (location.pathname !== "/watch" || !new URL(location.href).searchParams.has("v")) return;
 
   const sidebar = await findSidebar();
-  if (sidebar === null || location.pathname !== "/watch") return;
+  if (generation !== mountGeneration || sidebar === null || location.pathname !== "/watch") return;
   const host = document.createElement("section");
   host.id = ROOT_ID;
   host.setAttribute("aria-label", "Foreteller mention forecasts");
@@ -30,7 +34,12 @@ async function mountForCurrentVideo() {
   shadow.innerHTML = template();
   panel = createPanel(shadow);
   await panel.loadSettings();
+  if (generation !== mountGeneration) {
+    host.remove();
+    return;
+  }
   await refresh();
+  if (generation !== mountGeneration) return;
   pollTimer = setInterval(refresh, 1_000);
   clockTimer = setInterval(() => panel?.updateFooter(), 1_000);
 }
@@ -47,6 +56,7 @@ function createPanel(root) {
     settingsButton: root.querySelector(".settings-button"),
     form: root.querySelector("form"),
     eventUrl: root.querySelector('[name="eventUrl"]'),
+    serverPort: root.querySelector('[name="serverPort"]'),
     customFields: root.querySelector(".custom-fields"),
     customTitle: root.querySelector('[name="customTitle"]'),
     customTerms: root.querySelector('[name="customTerms"]'),
@@ -68,6 +78,7 @@ function createPanel(root) {
     elements.submitButton.disabled = true;
     elements.submitButton.textContent = "Starting…";
     const settings = readSettings();
+    backendPort = settings.serverPort;
     await chrome.storage.sync.set({ foretellerSettings: settings });
     const response = await api("PUT", {
       youtubeUrl: canonicalVideoUrl(),
@@ -104,6 +115,7 @@ function createPanel(root) {
   function readSettings() {
     return {
       eventUrl: elements.eventUrl.value.trim(),
+      serverPort: Number(elements.serverPort.value),
       customTitle: elements.customTitle.value.trim(),
       customTerms: elements.customTerms.value,
       speaker: elements.speaker.value.trim(),
@@ -152,6 +164,8 @@ function createPanel(root) {
     async loadSettings() {
       const stored = await chrome.storage.sync.get("foretellerSettings");
       const settings = { ...DEFAULT_SETTINGS, ...(stored.foretellerSettings ?? {}) };
+      backendPort = settings.serverPort;
+      elements.serverPort.value = String(settings.serverPort);
       elements.eventUrl.value = settings.eventUrl;
       elements.customTitle.value = settings.customTitle;
       elements.customTerms.value = settings.customTerms;
@@ -249,7 +263,12 @@ async function refresh() {
 }
 
 function api(method, body) {
-  return chrome.runtime.sendMessage({ type: "foreteller-api", method, body });
+  return chrome.runtime.sendMessage({
+    type: "foreteller-api",
+    method,
+    port: backendPort,
+    body,
+  });
 }
 
 function canonicalVideoUrl() {
@@ -266,6 +285,7 @@ function statusLabel(status) {
     idle: "Not running",
     starting: "Starting",
     live: "Live",
+    ended: "Event ended",
     error: "Needs attention",
   }[status] ?? "Unknown";
 }
@@ -360,6 +380,7 @@ function template() {
       <section class="settings" hidden>
         <form>
           <label>Polymarket event URL <span class="hint">Optional</span><input name="eventUrl" type="url" placeholder="https://polymarket.com/event/…"></label>
+          <label>Local service port<input name="serverPort" type="number" min="1024" max="65535" required></label>
           <div class="custom-fields">
             <label>Title<input name="customTitle" maxlength="200" required></label>
             <label>Terms <span class="hint">One per line</span><textarea name="customTerms" required></textarea></label>

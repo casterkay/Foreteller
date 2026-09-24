@@ -76,6 +76,10 @@ export class PanelState {
     this.error = message;
   }
 
+  public end(): void {
+    this.status = "ended";
+  }
+
   public reset(): void {
     this.status = "idle";
     this.mode = null;

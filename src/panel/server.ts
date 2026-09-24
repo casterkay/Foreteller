@@ -7,6 +7,7 @@ import type { PanelState } from "./state.js";
 import type { PanelConfiguration, PanelSnapshot } from "./types.js";
 
 const MAXIMUM_BODY_BYTES = 32 * 1024;
+const CONFIGURATION_TIMEOUT_MS = 30_000;
 const configurationSchema = z.object({
   youtubeUrl: z.string().trim().url().max(2_048),
   eventUrl: z.string().trim().max(2_048).default(""),
@@ -34,7 +35,7 @@ const configurationSchema = z.object({
 
 export interface PanelServerOptions {
   readonly runtime: {
-    configure(configuration: PanelConfiguration): Promise<PanelSnapshot>;
+    configure(configuration: PanelConfiguration, signal?: AbortSignal): Promise<PanelSnapshot>;
     stop(): Promise<void>;
   };
   readonly state: PanelState;
@@ -44,11 +45,14 @@ export interface PanelServerOptions {
 
 export class PanelServer {
   private server: Server | undefined;
+  private stopping = false;
+  private readonly requestControllers = new Set<AbortController>();
 
   public constructor(private readonly options: PanelServerOptions) {}
 
   public start(): Promise<void> {
     if (this.server !== undefined) return Promise.resolve();
+    this.stopping = false;
     const server = createServer((request, response) => {
       void this.handle(request, response);
     });
@@ -74,15 +78,24 @@ export class PanelServer {
   public async stop(): Promise<void> {
     const server = this.server;
     this.server = undefined;
+    this.stopping = true;
+    for (const controller of this.requestControllers) {
+      controller.abort(new Error("Panel service is stopping"));
+    }
+    if (server !== undefined) {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error === undefined ? resolve() : reject(error));
+      });
+    }
     await this.options.runtime.stop();
-    if (server === undefined) return;
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => error === undefined ? resolve() : reject(error));
-    });
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     setCorsHeaders(request, response);
+    if (this.stopping) {
+      writeJson(response, 503, { error: "Panel service is stopping" });
+      return;
+    }
     if (request.method === "OPTIONS") {
       response.writeHead(204).end();
       return;
@@ -99,7 +112,28 @@ export class PanelServer {
       }
       if (request.method === "PUT" && url.pathname === "/v1/panel") {
         const configuration = configurationSchema.parse(await readJson(request));
-        const snapshot = await this.options.runtime.configure(configuration);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => {
+          controller.abort(new ConfigurationTimeoutError());
+        }, CONFIGURATION_TIMEOUT_MS);
+        timeout.unref();
+        this.requestControllers.add(controller);
+        request.once("aborted", () => controller.abort(new Error("Panel request disconnected")));
+        response.once("close", () => {
+          if (!response.writableEnded) {
+            controller.abort(new Error("Panel request disconnected"));
+          }
+        });
+        let snapshot: PanelSnapshot;
+        try {
+          snapshot = await this.options.runtime.configure(configuration, controller.signal);
+        } finally {
+          clearTimeout(timeout);
+          this.requestControllers.delete(controller);
+        }
+        if (this.stopping) {
+          throw new ServiceStoppingError();
+        }
         writeJson(response, 202, snapshot);
         return;
       }
@@ -110,17 +144,33 @@ export class PanelServer {
       }
       writeJson(response, 404, { error: "Not found" });
     } catch (error: unknown) {
-      const status = error instanceof z.ZodError || error instanceof InvalidJsonError ? 400 : 500;
+      const status = this.stopping || error instanceof ServiceStoppingError
+        ? 503
+        : error instanceof ConfigurationTimeoutError
+          ? 504
+        : error instanceof z.ZodError || error instanceof InvalidJsonError
+        ? 400
+        : 500;
       const message = error instanceof z.ZodError
         ? error.issues[0]?.message ?? "Invalid panel configuration"
         : errorMessage(error);
       if (status === 500) this.options.logger.warn("Panel request failed", { error: message });
-      writeJson(response, status, { error: message });
+      if (!response.destroyed) writeJson(response, status, { error: message });
     }
   }
 }
 
 class InvalidJsonError extends Error {}
+class ServiceStoppingError extends Error {
+  public constructor() {
+    super("Panel service is stopping");
+  }
+}
+class ConfigurationTimeoutError extends Error {
+  public constructor() {
+    super("Panel configuration timed out");
+  }
+}
 
 async function readJson(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];

@@ -1,5 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 import type { Logger } from "../core/log.js";
 import type { ForecastMarket, ForecastSnapshot } from "../forecast/index.js";
@@ -30,9 +29,8 @@ export interface PanelRuntimeOptions {
   readonly forecaster: SessionForecaster;
   readonly subscriberClient: MarketSubscriptionClient;
   readonly logger: Logger;
-  readonly sessionDataDirectory: string;
   readonly forecastFallbackMs?: number;
-  readonly createAudioSource?: (videoUrl: string, archivePath: string) => AudioSource;
+  readonly createAudioSource?: (videoUrl: string) => AudioSource;
 }
 
 interface PreparedPanelSession {
@@ -48,6 +46,7 @@ interface PreparedPanelSession {
 interface ActivePanelSession {
   readonly controller: AbortController;
   readonly task: Promise<void>;
+  readonly endTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
 export class PanelRuntime {
@@ -56,20 +55,35 @@ export class PanelRuntime {
 
   public constructor(private readonly options: PanelRuntimeOptions) {}
 
-  public configure(configuration: PanelConfiguration): Promise<PanelSnapshot> {
+  public configure(
+    configuration: PanelConfiguration,
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<PanelSnapshot> {
     return this.runExclusive(async () => {
-      const prepared = await this.prepare(configuration);
+      signal.throwIfAborted();
+      const prepared = await withCancellation(this.prepare(configuration), signal);
+      signal.throwIfAborted();
       await this.stopActive();
+      signal.throwIfAborted();
       const startedAtMs = Date.now();
       this.options.state.begin(prepared.mode, prepared.title, prepared.markets, startedAtMs);
       const controller = new AbortController();
+      const endTimer = prepared.expectedEndMs === null
+        ? undefined
+        : setTimeout(() => {
+            this.options.state.end();
+            controller.abort(new Error("Polymarket event ended"));
+          }, Math.max(0, prepared.expectedEndMs - Date.now()));
+      endTimer?.unref();
       const task = this.run(prepared, controller.signal, startedAtMs).catch((error: unknown) => {
         if (controller.signal.aborted) return;
         const message = errorMessage(error);
         this.options.state.fail(message);
         this.options.logger.error("Panel session failed", { error: message });
+      }).finally(() => {
+        if (endTimer !== undefined) clearTimeout(endTimer);
       });
-      this.active = Object.freeze({ controller, task });
+      this.active = Object.freeze({ controller, task, endTimer });
       return this.options.state.snapshot();
     });
   }
@@ -179,19 +193,9 @@ export class PanelRuntime {
     subscriber?.start();
     this.options.state.markLive();
 
-    const sessionId = randomUUID();
-    const archivePath = join(
-      this.options.sessionDataDirectory,
-      sessionId,
-      `panel-audio-${String(startedAtMs)}.flac`,
-    );
     const audioSource = this.options.createAudioSource?.(
       session.configuration.youtubeUrl,
-      archivePath,
-    ) ?? new YoutubeAudioSource({
-      videoUrl: session.configuration.youtubeUrl,
-      archivePath,
-    });
+    ) ?? new YoutubeAudioSource({ videoUrl: session.configuration.youtubeUrl });
 
     try {
       await this.options.transcriber.run(
@@ -242,6 +246,7 @@ export class PanelRuntime {
     const active = this.active;
     if (active === undefined) return;
     this.active = undefined;
+    if (active.endTimer !== undefined) clearTimeout(active.endTimer);
     active.controller.abort(new Error("panel session replaced"));
     await active.task;
   }
@@ -300,4 +305,19 @@ function validateConfiguration(configuration: PanelConfiguration): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unexpected panel failure";
+}
+
+async function withCancellation<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  let removeAbortListener = (): void => undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason);
+    removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([operation, aborted]);
+  } finally {
+    removeAbortListener();
+  }
 }

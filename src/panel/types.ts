@@ -6,7 +6,7 @@ export interface PanelConfiguration {
   readonly speaker: string;
 }
 
-export type PanelStatus = "idle" | "starting" | "live" | "error";
+export type PanelStatus = "idle" | "starting" | "live" | "ended" | "error";
 
 export interface PanelMarketSnapshot {
   readonly marketId: string;

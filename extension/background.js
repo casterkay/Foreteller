@@ -1,5 +1,3 @@
-const PANEL_API = "http://127.0.0.1:4318/v1/panel";
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "foreteller-api") return false;
   void requestPanel(message).then(sendResponse);
@@ -14,7 +12,11 @@ async function requestPanel(message) {
     if (method !== "GET" && method !== "PUT" && method !== "DELETE") {
       return { ok: false, error: "Unsupported request" };
     }
-    const response = await fetch(PANEL_API, {
+    const port = Number(message.port);
+    if (!Number.isInteger(port) || port < 1_024 || port > 65_535) {
+      return { ok: false, error: "Invalid panel service port" };
+    }
+    const response = await fetch(`http://127.0.0.1:${String(port)}/v1/panel`, {
       method,
       signal: controller.signal,
       headers: method === "PUT" ? { "Content-Type": "application/json" } : undefined,

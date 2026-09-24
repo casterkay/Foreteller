@@ -7,3 +7,4 @@
 
 The extension contains no API keys. It talks only to the Foreteller service bound to
 `127.0.0.1:4318`.
+If `PANEL_SERVER_PORT` changes, enter the same port in the panel settings.

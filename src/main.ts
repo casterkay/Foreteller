@@ -211,7 +211,6 @@ function createPanelServer(
     }),
     subscriberClient: createPolymarketSubscriptionClient(),
     logger,
-    sessionDataDirectory: config.sessionDataDirectory,
   });
   return new PanelServer({
     runtime,
