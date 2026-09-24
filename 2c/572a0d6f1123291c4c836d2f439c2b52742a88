@@ -1,0 +1,39 @@
+extension/README.md
+  s_7cee6b3e3698cf::t_674cb1ee30bc0e 10
+extension/background.js
+  s_7cee6b3e3698cf::t_0609b1926fa8c0 15-19
+extension/content.js
+  s_7cee6b3e3698cf::t_1d52f23a623d2c 4,14-15,21,28,37-40,42,59,81,118,167-168,266-271,288,383
+extension/manifest.json
+  s_7cee6b3e3698cf::t_9e16eb2b37418b 7
+package.json
+  s_7cee6b3e3698cf::t_0fa0654eb86eaf 41
+src/panel/runtime.ts
+  s_7cee6b3e3698cf::t_3233939c5d130a 1,33,49,58-61,63-65,67,71-77,83-84,86,198,249,309-323
+src/panel/server.ts
+  s_7cee6b3e3698cf::t_9d6426a6f91d37 10,38,48-49,55,81-89,95-98,115-136,147-153,158,164-173
+src/panel/state.ts
+  s_7cee6b3e3698cf::t_02826017424d15 79-82
+src/panel/types.ts
+  s_7cee6b3e3698cf::t_ace232b43368ec 9
+test/panel/runtime.test.ts
+  s_7cee6b3e3698cf::t_35fbe43550439c 62-159,230-285
+test/panel/server.test.ts
+  s_7cee6b3e3698cf::t_d8a4cdbd6cea31 3,74-141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2c572a0d6f1123291c4c836d2f439c2b52742a88",
+  "prompts": {},
+  "sessions": {
+    "s_7cee6b3e3698cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ceba-51dc-7ea2-bfab-766191aeaae0",
+        "model": "unknown"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
