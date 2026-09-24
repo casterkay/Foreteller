@@ -1,0 +1,59 @@
+src/runtime/session.ts
+  s_2ce155f091ba24::t_9ab30d038d0d6d 187-190
+  s_2ce155f091ba24::t_26d8ef81bbb0c8 64-65
+  s_2ce155f091ba24::t_d450966c7c3a3d 353-358
+  s_2ce155f091ba24::t_1ad6069f92e23f 391-398
+src/main.ts
+  s_2ce155f091ba24::t_797eede955b898 104-105
+src/transcript/audio.ts
+  s_2ce155f091ba24::t_c97fa5cf32086b 22,32-37,40-42,72-101,108-109,117-125,131,138-157,176-177,179-184,209-220
+test/transcript/audio.test.ts
+  s_2ce155f091ba24::t_27ce5e4e61a70e 1-135
+src/config.ts
+  s_2ce155f091ba24::t_386079d445f953 79-80
+  s_2ce155f091ba24::t_67ea34e945642b 20-21
+  s_2ce155f091ba24::t_058a2817ceaf76 122-123
+src/transcript/deepgram.ts
+  s_2ce155f091ba24::t_9aa3f8ecfbd1e5 268
+  s_2ce155f091ba24::t_e7300b47a26977 318
+  s_2ce155f091ba24::t_e184eee3a2c32b 19
+src/panel/runtime.ts
+  s_2ce155f091ba24::t_88f1171b6f589e 174-176
+  s_2ce155f091ba24::t_60214455625649 251-253
+test/runtime/session.test.ts
+  s_2ce155f091ba24::t_8a5250eb369243 177
+  s_2ce155f091ba24::t_c3cb6799164a02 294,305,308,317-318
+  s_2ce155f091ba24::t_0c8836d97fe05d 319,396-407
+  s_2ce155f091ba24::t_6b454edf7bfef2 209
+  s_2ce155f091ba24::t_21b881520a20fa 150-169
+  s_f44a36e021f645::t_376a955ac7750f 320
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "816507595ca49bbbd7e25b2cad7e96f281ad9e7a",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  },
+  "sessions": {
+    "s_2ce155f091ba24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41378632-4427-4660-8f42-ceb7fd0a34b5",
+        "model": "deepseek-v4-pro"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    },
+    "s_f44a36e021f645": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a0d1c7-f447-7583-818d-6f94e8c19fc8",
+        "model": "deepseek-v4-pro"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
