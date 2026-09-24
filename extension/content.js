@@ -86,6 +86,17 @@ function createPanel(root, generation) {
   const marketRows = new Map();
   let settingsOpen = !elements.settings.hidden;
 
+  // Shadow-DOM retargeting hides the panel's inputs from YouTube's global
+  // shortcut handler (j/k/space still seek and toggle the video while typing),
+  // so stop keystrokes from leaving the shadow tree while an editable field
+  // has focus. The input still receives the character — only propagation is cut.
+  root.addEventListener("keydown", (event) => {
+    const target = root.activeElement;
+    if (target instanceof Element && (target.matches("input, textarea") || target.isContentEditable)) {
+      event.stopPropagation();
+    }
+  });
+
   elements.settingsButton.addEventListener("click", () => {
     const open = !settingsOpen;
     setSettingsOpen(open);
@@ -276,14 +287,16 @@ function renderMarket(market, hasPolymarket, edgeIsComparable) {
   const term = document.createElement("span");
   term.className = "term";
   term.textContent = market.term;
-  header.append(term);
+  const edge = document.createElement("span");
+  edge.className = "edge";
+  edge.hidden = true;
+  header.append(term, edge, valueLabel("Jev", market.jevProbability, "%"));
 
   row.append(header);
 
   const values = document.createElement("div");
   values.className = "values";
   if (hasPolymarket) values.append(valueLabel("PM", market.polymarketYesPrice, "¢"));
-  values.append(valueLabel("Jev", market.jevProbability, "%"));
   row.append(values);
 
   const track = document.createElement("div");
@@ -303,15 +316,16 @@ function renderMarket(market, hasPolymarket, edgeIsComparable) {
 function updateMarket(row, market, hasPolymarket, edgeIsComparable) {
   row.classList.toggle("jev-only", !hasPolymarket);
   row.querySelector(".term").textContent = market.term;
+  setValue(row.querySelector('.market-header .value-label[data-name="Jev"]'), market.jevProbability, "%");
   const values = row.querySelector(".values");
-  const labels = hasPolymarket
-    ? [["PM", market.polymarketYesPrice, "¢"], ["Jev", market.jevProbability, "%"]]
-    : [["Jev", market.jevProbability, "%"]];
-  if (values.children.length !== labels.length) values.replaceChildren(...labels.map(([name, value, suffix]) => valueLabel(name, value, suffix)));
-  labels.forEach(([, value, suffix], index) => {
-    const strong = values.children[index].querySelector("strong");
-    strong.textContent = value === null ? "Awaiting data" : `${Math.round(value * 100)}${suffix}`;
-  });
+  if (hasPolymarket) {
+    let pmValue = values.querySelector('.value-label[data-name="PM"]');
+    if (pmValue === null) { pmValue = valueLabel("PM", market.polymarketYesPrice, "¢"); values.append(pmValue); }
+    setValue(pmValue, market.polymarketYesPrice, "¢");
+  } else {
+    values.replaceChildren();
+  }
+  values.hidden = values.children.length === 0;
   const track = row.querySelector(".track");
   track.setAttribute("aria-label", marketAriaLabel(market, hasPolymarket));
   for (const [kind, value] of [["pm", hasPolymarket ? market.polymarketYesPrice : null], ["jev", market.jevProbability]]) {
@@ -324,8 +338,7 @@ function updateMarket(row, market, hasPolymarket, edgeIsComparable) {
   let gap = track.querySelector(".gap");
   if (gap === null) { gap = document.createElement("span"); gap.className = "gap"; track.prepend(gap); }
   gap.hidden = !comparable;
-  let edge = row.querySelector(".edge");
-  if (edge === null) { edge = document.createElement("span"); edge.className = "edge"; row.querySelector(".market-header").append(edge); }
+  const edge = row.querySelector(".edge");
   edge.hidden = !comparable || !edgeIsComparable;
   if (comparable) {
     const difference = market.jevProbability - market.polymarketYesPrice;
@@ -345,10 +358,16 @@ function marker(kind, value) {
 
 function valueLabel(name, value, suffix) {
   const label = document.createElement("span");
+  label.className = "value-label";
+  label.dataset.name = name;
   const strong = document.createElement("strong");
   strong.textContent = value === null ? "Awaiting data" : `${Math.round(value * 100)}${suffix}`;
   label.append(`${name} `, strong);
   return label;
+}
+
+function setValue(label, value, suffix) {
+  label.querySelector("strong").textContent = value === null ? "Awaiting data" : `${Math.round(value * 100)}${suffix}`;
 }
 
 function marketAriaLabel(market, hasPolymarket) {
@@ -458,18 +477,20 @@ function template() {
       .settings-button { min-height:36px; padding:7px 9px; border:0; border-radius:8px; background:transparent; }
       .settings-button:hover { background:var(--track); }
       h2 { min-width:0; margin:0; font-size:18px; line-height:1.35; font-weight:600; overflow-wrap:anywhere; letter-spacing:0; }
-      .status-row { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; }
+      .status-row { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:12px; }
       .connection-status::before { content:""; display:inline-block; width:7px; height:7px; margin-right:7px; border-radius:50%; background:var(--muted); }
       .connection-status[data-status="live"]::before { background:var(--positive); box-shadow:0 0 0 3px color-mix(in srgb,var(--positive) 15%,transparent); }
       .connection-status[data-status="error"]::before { background:#d14b4b; }
       .coverage-status { margin-top:7px; color:var(--muted); font-size:12px; }
-      .legend { display:flex; gap:17px; margin-top:15px; color:var(--muted); font-size:12px; }
+      .legend { display:flex; gap:17px; color:var(--muted); font-size:12px; }
       .legend span { display:flex; align-items:center; gap:7px; }
       .legend i { display:block; width:9px; height:9px; background:var(--jev); border-radius:2px; transform:rotate(45deg); }
       .legend .pm-key i { background:var(--pm); border-radius:50%; transform:none; }
       .market { overflow:hidden; animation:arrive 240ms ease-out; padding:17px 20px 14px; border-top:1px solid var(--line); }
-      .market-header { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
-      .term { min-width:0; font-weight:500; overflow-wrap:anywhere; }
+      .market-header { display:flex; align-items:baseline; gap:10px; }
+      .term { flex:1; min-width:0; font-weight:500; overflow-wrap:anywhere; }
+      .market-header .value-label { flex:none; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+      .market-header .value-label strong { color:var(--text); font-weight:500; }
       .edge { flex:none; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
       .edge.considerable { padding:3px 7px; color:var(--positive); background:var(--positive-bg); border-radius:6px; font-weight:600; }
       .values { display:flex; flex-wrap:wrap; gap:16px; margin-top:6px; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
@@ -503,9 +524,8 @@ function template() {
     <div class="panel">
       <header class="header">
         <div class="top"><h2 class="event-title">Foreteller 预言家</h2><button class="settings-button" type="button" aria-expanded="false">Settings</button></div>
-        <div class="status-row"><span class="connection-status" data-status="idle">Not running</span></div>
+        <div class="status-row"><span class="connection-status" data-status="idle">Not running</span><div class="legend" hidden><span class="pm-key"><i></i>PM YES</span><span><i></i>Jev forecast</span></div></div>
         <div class="coverage-status" hidden></div>
-        <div class="legend" hidden><span class="pm-key"><i></i>PM YES</span><span><i></i>Jev forecast</span></div>
       </header>
       <div class="markets"></div>
       <p class="error" role="alert" hidden></p>
