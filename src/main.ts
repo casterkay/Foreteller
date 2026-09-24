@@ -11,6 +11,7 @@ import { JevForecaster } from "./forecast/index.js";
 import { createPolymarketReadClient } from "./market/polymarket.js";
 import { createPolymarketSubscriptionClient } from "./market/subscription.js";
 import { YouTubeProbe } from "./media/youtube.js";
+import { PanelRuntime, PanelServer, PanelState } from "./panel/index.js";
 import { formatReplayReport, formatSessionReport } from "./report.js";
 import { LiveSessionRuntime, type BindingVerifier } from "./runtime/index.js";
 import { SqliteStore } from "./storage/index.js";
@@ -43,8 +44,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "panel") {
+    await runPanel(config, logger);
+    return;
+  }
+
   if (command !== "serve") {
-    throw new Error("Usage: foreteller <serve|doctor|report [session_id]|replay [session_id]>");
+    throw new Error("Usage: foreteller <serve|panel|doctor|report [session_id]|replay [session_id]>");
   }
 
   await serve(config, logger);
@@ -65,6 +71,7 @@ async function serve(
   const readClient = createPolymarketReadClient();
   const proposer = new PolymarketEventProposer(readClient);
   const videoProbe = new YouTubeProbe();
+  const panelServer = createPanelServer(config, logger, proposer, videoProbe);
   const trader = config.liveTrading
     ? await createPolymarketVenueTrader(config)
     : new DisabledVenueTrader();
@@ -130,14 +137,25 @@ async function serve(
     logger,
   );
 
+  await panelServer.start();
+
   let shuttingDown = false;
   const shutdown = async (reason: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info("Stopping Foreteller", { reason });
     bot.stop();
-    await runtime.shutdown();
-    store.close();
+
+    // A failure in one teardown step must not orphan the remaining resources.
+    try {
+      await panelServer.stop();
+    } finally {
+      try {
+        await runtime.shutdown();
+      } finally {
+        store.close();
+      }
+    }
   };
   process.once("SIGINT", () => void shutdown("SIGINT"));
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
@@ -146,12 +164,71 @@ async function serve(
     liveTrading: config.liveTrading,
     audioAgeBasis: "pipeline clock unless the source provides wall-clock timestamps",
     primarySpeaker: config.deepgramPrimarySpeaker,
+    panelServer: `http://127.0.0.1:${String(config.panelServerPort)}`,
   });
   try {
     await bot.start();
   } finally {
     await shutdown("bot stopped");
   }
+}
+
+async function runPanel(
+  config: ReturnType<typeof loadConfig>,
+  logger: ReturnType<typeof createLogger>,
+): Promise<void> {
+  if (config.deepgramApiKey === undefined || config.typeSafeApiKey === undefined) {
+    throw new Error("panel requires DEEPGRAM_API_KEY and TYPESAFE_API_KEY");
+  }
+  const panelServer = createPanelServer(
+    config,
+    logger,
+    new PolymarketEventProposer(createPolymarketReadClient()),
+    new YouTubeProbe(),
+  );
+  await panelServer.start();
+  logger.info("Foreteller panel service started", {
+    address: `http://127.0.0.1:${String(config.panelServerPort)}`,
+  });
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
+  });
+  await panelServer.stop();
+}
+
+function createPanelServer(
+  config: ReturnType<typeof loadConfig>,
+  logger: ReturnType<typeof createLogger>,
+  proposer: PolymarketEventProposer,
+  videoProbe: YouTubeProbe,
+): PanelServer {
+  if (config.deepgramApiKey === undefined || config.typeSafeApiKey === undefined) {
+    throw new Error("panel service requires DEEPGRAM_API_KEY and TYPESAFE_API_KEY");
+  }
+  const state = new PanelState();
+  const runtime = new PanelRuntime({
+    state,
+    proposer,
+    videoProbe,
+    transcriber: new DeepgramStreamingTranscriber({ apiKey: config.deepgramApiKey }),
+    forecaster: new JevForecaster({
+      apiKey: config.typeSafeApiKey,
+      timeoutMs: 15_000,
+      maximumForecastAgeMs: config.limits.maximumForecastAgeMs,
+      minimumIntervalMs: config.limits.minimumForecastIntervalMs,
+    }),
+    subscriberClient: createPolymarketSubscriptionClient(),
+    logger,
+    minimumWordConfidence: config.limits.minimumWordConfidence,
+    primarySpeaker: config.deepgramPrimarySpeaker,
+  });
+  return new PanelServer({
+    runtime,
+    state,
+    logger,
+    port: config.panelServerPort,
+  });
 }
 
 main().catch((error: unknown) => {

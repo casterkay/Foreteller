@@ -20,6 +20,29 @@ pnpm run doctor
 pnpm dev
 ```
 
+## YouTube panel
+
+Foreteller includes a Chrome-compatible Manifest V3 extension that places a
+read-only probability panel in the YouTube watch-page sidebar. Start its local
+service independently of Telegram and trading:
+
+```sh
+pnpm panel
+```
+
+Then load the [`extension`](./extension) directory as an unpacked extension from
+`chrome://extensions`. The extension stores only panel preferences. Deepgram and
+TypeSafe credentials remain in the local service.
+
+Enter a Polymarket mentions-event URL to compare the live YES midpoint with Jev's
+probability of a future mention after the latest transcript. Leave the event URL
+empty to use a custom title and terms; custom mode displays only Jev forecasts.
+
+The service monitors one video at a time. Browsing away leaves that monitoring
+running; a panel opened on any other video reports which video is monitored and
+withholds its forecasts. Starting from a different video replaces the monitored
+video, and **Stop** or the event's end is what ends monitoring.
+
 The service defaults to dry run. Set `LIVE_TRADING=true` only after `pnpm doctor`
 passes and the wallet has the required balance and allowances.
 

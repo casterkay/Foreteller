@@ -2,7 +2,7 @@
 
 Status: implemented locally; credentialed live validation pending
 
-Updated: 2026-09-22
+Updated: 2026-09-24
 
 This is the authoritative MVP plan. `jev-live-mention-market-strategy.md` is
 background research; its architecture, scope, and delivery gates are superseded.
@@ -19,6 +19,8 @@ Implementation status:
   account inspection; it cannot be reconciled safely from the local intent ID.
 - Resolved outcomes are not fetched automatically yet, so reports show filled
   positions as unresolved until outcome facts are recorded.
+- The read-only YouTube panel is implemented alongside M0-M5 and adds no trading
+  path; see "Read-only YouTube panel" below.
 
 ## Goal and scope
 
@@ -39,6 +41,32 @@ Skip ambiguous rules, commentary/translated feeds, and `-No Qualifying Event-`.
 Orders are FAK BUY only: partial fills are allowed, nothing rests, and positions
 are held to resolution. Live trading starts when M3 is ready; there is no separate
 multi-session shadow gate.
+
+## Read-only YouTube panel
+
+A Manifest V3 extension shows live Jev probabilities, and the Polymarket YES
+midpoint when an event is supplied, in the YouTube sidebar. It reads immutable
+snapshots from a localhost service (`pnpm panel`) and exposes no trading action,
+so it stays outside the milestones above and outside the operator's audited path.
+
+Panel rules, all of which the service owns:
+
+- **One global session.** The service monitors a single video; configuring a
+  different video replaces it. There is no per-client or concurrent session.
+- **The view is disposable, the session is not.** Browsing away tears down only
+  the panel. Monitoring ends on an explicit stop or at the venue's event horizon,
+  so navigating one tab cannot end monitoring another tab is displaying.
+- **A snapshot names the source it describes.** A panel whose video differs from
+  the monitored video withholds forecasts instead of showing them as its own.
+- **Matched terms leave the comparison.** Once a qualifying mention is observed
+  the market is retired, so a future-mention forecast is never drawn against an
+  already-satisfied YES contract. Monitoring that begins mid-event is labeled
+  partial and hides edge labels.
+- **Unbounded venue work is abandoned, not awaited.** Market stream startup and
+  shutdown are bounded, so a stalled subscription cannot block session
+  replacement or process shutdown.
+- Panel audio is streamed without archival; only the operator trading runtime
+  keeps audited recordings.
 
 ## Build shape
 

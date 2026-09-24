@@ -24,19 +24,30 @@ export class PolymarketEventProposer {
 
   public async propose(eventId: string): Promise<EventProposal> {
     requireText(eventId, "event ID");
-    const event = await this.client.fetchEvent({ id: eventId });
-    if (event.id !== eventId) {
+    const isUrl = /^https:\/\/(?:www\.)?polymarket\.com\/event\/[^/?#]+(?:[/?#]|$)/u.test(eventId);
+    const event = isUrl
+      ? await this.fetchEventUrl(eventId)
+      : await this.client.fetchEvent({ id: eventId });
+    if (!isUrl && event.id !== eventId) {
       throw new Error(`Polymarket returned event ${event.id} for requested event ${eventId}`);
     }
 
-    const eventTitle = requireText(event.title, `Event ${eventId} title`);
+    const resolvedEventId = requireText(event.id, "Polymarket event ID");
+    const eventTitle = requireText(event.title, `Event ${resolvedEventId} title`);
     const terms = event.markets.flatMap((market) => termForMarket(market));
     if (terms.length === 0) {
       throw new Error(`Event ${eventTitle} has no unambiguous single-mention markets`);
     }
 
-    const selected = await this.marketData.fetchSelectedEvent(eventId, terms);
+    const selected = await this.marketData.fetchSelectedEvent(resolvedEventId, terms);
     return proposalFromSelected(selected);
+  }
+
+  private fetchEventUrl(eventUrl: string): Promise<Event> {
+    if (this.client.fetchEventByUrl === undefined) {
+      throw new Error("Polymarket event URL lookup is unavailable");
+    }
+    return this.client.fetchEventByUrl({ url: eventUrl });
   }
 }
 

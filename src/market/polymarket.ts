@@ -13,6 +13,7 @@ import type { EventMarkets, FeeSchedule, MarketTokens, SelectedMarket } from "./
 
 export interface PolymarketReadClient {
   fetchEvent(request: { readonly id: string }): Promise<Event>;
+  fetchEventByUrl?(request: { readonly url: string }): Promise<Event>;
   fetchMarketInfo(request: { readonly conditionId: string }): Promise<MarketInfo>;
   fetchOrderBook(request: { readonly assetId: string }): Promise<OrderBook>;
 }
@@ -21,6 +22,7 @@ export function createPolymarketReadClient(): PolymarketReadClient {
   const client = createPublicClient();
   return Object.freeze({
     fetchEvent: (request: { readonly id: string }) => fetchEvent(client, request),
+    fetchEventByUrl: (request: { readonly url: string }) => fetchEvent(client, request),
     fetchMarketInfo: (request: { readonly conditionId: string }) =>
       fetchMarketInfo(client, request),
     fetchOrderBook: (request: { readonly assetId: string }) => client.fetchOrderBook(request),

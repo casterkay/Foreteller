@@ -65,9 +65,22 @@ export interface MarketBookSubscriberOptions {
   readonly tokenIds: readonly string[];
   readonly tickSizes: ReadonlyMap<string, number>;
   readonly reconnectDelayMs?: number;
+
+  /** Bounds a stream handshake and its first snapshots, which the venue client cannot cancel. */
+  readonly startupTimeoutMs?: number;
+
+  /** Bounds how long `stop()` waits for the venue handle and stream loop to unwind. */
+  readonly stopTimeoutMs?: number;
   readonly now?: () => number;
   readonly onBook?: (book: BookState) => void;
   readonly onError?: (error: Error) => void;
+}
+
+export class MarketSubscriptionTimeoutError extends Error {}
+export class MarketSubscriptionStoppedError extends Error {
+  public constructor() {
+    super("Market subscription stopped");
+  }
 }
 
 export class MarketBookSubscriber {
@@ -75,12 +88,15 @@ export class MarketBookSubscriber {
   readonly #tokenIds: readonly string[];
   readonly #tickSizes: ReadonlyMap<string, number>;
   readonly #reconnectDelayMs: number;
+  readonly #startupTimeoutMs: number;
+  readonly #stopTimeoutMs: number;
   readonly #now: () => number;
   readonly #onBook: ((book: BookState) => void) | undefined;
   readonly #onError: ((error: Error) => void) | undefined;
   #running = false;
   #task: Promise<void> | undefined;
   #handle: MarketSubscriptionHandle | undefined;
+  #shutdown = new AbortController();
 
   public constructor(
     private readonly client: MarketSubscriptionClient,
@@ -94,6 +110,8 @@ export class MarketBookSubscriber {
     if (!Number.isFinite(this.#reconnectDelayMs) || this.#reconnectDelayMs < 0) {
       throw new Error("Reconnect delay must be non-negative");
     }
+    this.#startupTimeoutMs = positiveDuration(options.startupTimeoutMs ?? 10_000, "Startup timeout");
+    this.#stopTimeoutMs = positiveDuration(options.stopTimeoutMs ?? 5_000, "Stop timeout");
     this.#now = options.now ?? Date.now;
     this.#onBook = options.onBook;
     this.#onError = options.onError;
@@ -107,13 +125,41 @@ export class MarketBookSubscriber {
   public start(): void {
     if (this.#running) return;
     this.#running = true;
-    this.#task = this.run();
+    this.#shutdown = new AbortController();
+    this.#task = this.run(this.#shutdown.signal);
   }
 
+  /**
+   * Always completes. The venue handle and the stream loop are given a bounded
+   * window to unwind; past it the subscriber is abandoned rather than allowed to
+   * block session replacement or process shutdown. Book callbacks stop first, so
+   * abandoned work cannot reach a consumer that has already torn down.
+   */
   public async stop(): Promise<void> {
+    if (!this.#running) return;
     this.#running = false;
-    await this.#handle?.close();
-    await this.#task;
+    this.#shutdown.abort(new MarketSubscriptionStoppedError());
+    const handle = this.#handle;
+    const task = this.#task;
+    this.#handle = undefined;
+    this.#task = undefined;
+    try {
+      await withDeadline(
+        (async () => {
+          await handle?.close();
+          await task;
+        })(),
+        this.#stopTimeoutMs,
+      );
+    } catch (error: unknown) {
+      if (error instanceof MarketSubscriptionTimeoutError) {
+        this.#onError?.(new MarketSubscriptionTimeoutError(
+          "Abandoned an unresponsive market subscription while stopping",
+        ));
+        return;
+      }
+      this.#onError?.(asError(error));
+    }
   }
 
   public book(tokenId: string): BookState {
@@ -126,49 +172,55 @@ export class MarketBookSubscriber {
     return [...this.#books.values()].every((book) => book.synchronized);
   }
 
-  private async run(): Promise<void> {
+  private async run(signal: AbortSignal): Promise<void> {
     while (this.#running) {
       try {
         this.markUnsynchronized();
-        this.#handle = await this.client.subscribe([
-          { topic: "market", assetIds: this.#tokenIds },
-        ]);
-        await this.refreshSnapshots();
-        for await (const event of this.#handle) {
+        const connection = await withDeadline(
+          this.client.subscribe([{ topic: "market", assetIds: this.#tokenIds }]),
+          this.#startupTimeoutMs,
+          signal,
+          (late) => void late.close().catch(() => undefined),
+        );
+        this.#handle = connection;
+        await withDeadline(this.refreshSnapshots(connection), this.#startupTimeoutMs, signal);
+        for await (const event of connection) {
           if (!this.#running) break;
           this.apply(event);
         }
       } catch (error: unknown) {
-        this.#onError?.(asError(error));
+        if (!signal.aborted) this.#onError?.(asError(error));
       } finally {
         this.#handle = undefined;
         this.markUnsynchronized();
       }
-      if (this.#running) await wait(this.#reconnectDelayMs);
+      if (this.#running) await wait(this.#reconnectDelayMs, signal);
     }
   }
 
-  private async refreshSnapshots(): Promise<void> {
-    await Promise.all(
+  private async refreshSnapshots(connection: MarketSubscriptionHandle): Promise<void> {
+    const snapshots = await Promise.all(
       this.#tokenIds.map(async (tokenId) => {
         const book = await this.client.fetchOrderBook({ assetId: tokenId });
         if (book.assetId !== tokenId) {
           throw new Error(`Snapshot token mismatch: expected ${tokenId}, received ${book.assetId}`);
         }
-        this.setBook(
-          applyBookSnapshot({
-            tokenId,
-            bids: parseLevels(book.bids, "snapshot bids"),
-            asks: parseLevels(book.asks, "snapshot asks"),
-            tickSize: parsePositive(book.tickSize, "snapshot tick size"),
-            ...(book.timestamp === null || book.timestamp === undefined
-              ? {}
-              : { sourceTimestampMs: parseTimestamp(book.timestamp) }),
-            receivedAtMs: this.#now(),
-          }),
-        );
+        return applyBookSnapshot({
+          tokenId,
+          bids: parseLevels(book.bids, "snapshot bids"),
+          asks: parseLevels(book.asks, "snapshot asks"),
+          tickSize: parsePositive(book.tickSize, "snapshot tick size"),
+          ...(book.timestamp === null || book.timestamp === undefined
+            ? {}
+            : { sourceTimestampMs: parseTimestamp(book.timestamp) }),
+          receivedAtMs: this.#now(),
+        });
       }),
     );
+
+    // Snapshots that arrive after their connection was abandoned describe a book we no longer track.
+    if (this.#handle !== connection) return;
+    for (const book of snapshots) this.setBook(book);
   }
 
   private apply(event: MarketStreamEvent): void {
@@ -237,7 +289,7 @@ export class MarketBookSubscriber {
 
   private setBook(book: BookState): void {
     this.#books.set(book.tokenId, book);
-    this.#onBook?.(book);
+    if (this.#running) this.#onBook?.(book);
   }
 }
 
@@ -272,6 +324,62 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error("Market subscription failed", { cause: error });
 }
 
-function wait(delayMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delayMs));
+function positiveDuration(value: number, label: string): number {
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`${label} must be positive`);
+  return value;
+}
+
+function wait(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(finish, delayMs);
+    signal.addEventListener("abort", finish, { once: true });
+    function finish(): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    }
+  });
+}
+
+/**
+ * The venue client accepts no cancellation, so a stalled handshake or snapshot can
+ * only be bounded and abandoned. A value that arrives after the wait gave up is
+ * handed to `discard` so an established connection is still released.
+ */
+async function withDeadline<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  cancellation?: AbortSignal,
+  discard: (value: T) => void = () => undefined,
+): Promise<T> {
+  const deadline = new AbortController();
+  const timer = setTimeout(
+    () => deadline.abort(new MarketSubscriptionTimeoutError(
+      `Market subscription call exceeded ${String(timeoutMs)} ms`,
+    )),
+    timeoutMs,
+  );
+  const onCancellation = (): void => deadline.abort(asError(cancellation?.reason));
+  if (cancellation?.aborted === true) onCancellation();
+  else cancellation?.addEventListener("abort", onCancellation, { once: true });
+  try {
+    return await Promise.race([operation, rejectOnAbort(deadline.signal)]);
+  } catch (error: unknown) {
+    if (deadline.signal.aborted) void operation.then(discard, () => undefined);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    cancellation?.removeEventListener("abort", onCancellation);
+  }
+}
+
+function rejectOnAbort(signal: AbortSignal): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    if (signal.aborted) {
+      reject(asError(signal.reason));
+      return;
+    }
+    signal.addEventListener("abort", () => reject(asError(signal.reason)), { once: true });
+  });
 }

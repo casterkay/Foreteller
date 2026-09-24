@@ -7,7 +7,19 @@ import {
 
 import type { Clock } from "../core/clock.js";
 import { systemClock } from "../core/clock.js";
-import type { ForecastAnswer, MarketDefinition } from "../domain/types.js";
+import type { ForecastAnswer, TermSpec } from "../domain/types.js";
+
+export type ForecastTerm = Pick<
+  TermSpec,
+  "marketId" | "label" | "acceptedForms" | "excludedForms" | "speakerScope"
+> & Partial<Pick<TermSpec, "windowStartMs" | "windowEndMs">>;
+
+export interface ForecastMarket {
+  readonly marketId: string;
+  readonly question: string;
+  readonly description: string;
+  readonly term: ForecastTerm;
+}
 
 export interface ForecastSnapshot {
   readonly snapshotAtMs: number;
@@ -16,11 +28,11 @@ export interface ForecastSnapshot {
   readonly speaker: string;
   readonly eventPhase: string;
   readonly elapsedMs: number;
-  readonly estimatedRemainingMs: number;
+  readonly estimatedRemainingMs: number | null;
   readonly transcriptCutoffMs: number;
   readonly recentTranscript: string;
   readonly earlierSummary: string;
-  readonly markets: readonly MarketDefinition[];
+  readonly markets: readonly ForecastMarket[];
   readonly matchedMarketIds: ReadonlySet<string>;
 }
 
@@ -207,10 +219,14 @@ function createRequest(
         accepted_forms: [...market.term.acceptedForms],
         excluded_forms: [...market.term.excludedForms],
         speaker_scope: market.term.speakerScope,
-        qualifying_window: {
-          start_ms: market.term.windowStartMs,
-          end_ms: market.term.windowEndMs,
-        },
+        ...(market.term.windowStartMs === undefined || market.term.windowEndMs === undefined
+          ? {}
+          : {
+              qualifying_window: {
+                start_ms: market.term.windowStartMs,
+                end_ms: market.term.windowEndMs,
+              },
+            }),
       },
       {
         true: "The term will be mentioned within the qualifying rules and remaining window.",
@@ -308,7 +324,7 @@ export class JevForecaster {
     if (now - snapshot.snapshotAtMs > this.#maximumForecastAgeMs) {
       return Object.freeze({ status: "skipped", reason: "stale_snapshot" });
     }
-    if (snapshot.estimatedRemainingMs <= 0) {
+    if (snapshot.estimatedRemainingMs !== null && snapshot.estimatedRemainingMs <= 0) {
       return Object.freeze({ status: "skipped", reason: "event_ended" });
     }
 

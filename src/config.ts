@@ -15,6 +15,7 @@ const environmentSchema = z.object({
   POLYMARKET_FUNDER_ADDRESS: optionalSecret,
   DATABASE_PATH: z.string().default("./data/foreteller.sqlite"),
   SESSION_DATA_DIR: z.string().default("./data/sessions"),
+  PANEL_SERVER_PORT: z.coerce.number().int().min(1_024).max(65_535).default(4_318),
   LIVE_TRADING: z.enum(["true", "false"]).default("false"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   DEEPGRAM_PRIMARY_SPEAKER: z.coerce.number().int().nonnegative().default(0),
@@ -70,6 +71,7 @@ export interface AppConfig {
   readonly databasePath: string;
   readonly sessionDataDirectory: string;
   readonly liveTrading: boolean;
+  readonly panelServerPort: number;
   readonly logLevel: "debug" | "info" | "warn" | "error";
   readonly deepgramPrimarySpeaker: number;
   readonly limits: Limits;
@@ -109,6 +111,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     databasePath: resolve(parsed.DATABASE_PATH),
     sessionDataDirectory: resolve(parsed.SESSION_DATA_DIR),
     liveTrading: parsed.LIVE_TRADING === "true",
+    panelServerPort: parsed.PANEL_SERVER_PORT,
     logLevel: parsed.LOG_LEVEL,
     deepgramPrimarySpeaker: parsed.DEEPGRAM_PRIMARY_SPEAKER,
     limits: defaultLimits,
