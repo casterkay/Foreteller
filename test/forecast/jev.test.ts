@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Clock } from "../../src/core/clock.js";
 import type { MarketDefinition } from "../../src/domain/types.js";
 import {
   InvalidJevResponseError,
@@ -89,7 +88,6 @@ describe("JevForecaster", () => {
       transport,
       timeoutMs: 1_000,
       maximumForecastAgeMs: 20_000,
-      minimumIntervalMs: 5_000,
       clock: { now: () => 1_100 },
     });
 
@@ -117,40 +115,24 @@ describe("JevForecaster", () => {
     expect(encoded).not.toContain("robots");
   });
 
-  it("allows only one request in flight and gates from completion time", async () => {
-    let now = 1_000;
+  it("sends every revision immediately even while previous requests are pending", async () => {
     const pending = deferred<unknown>();
     let calls = 0;
-    const transport: JevTransport = {
-      request: () => {
-        calls += 1;
-        return pending.promise;
-      },
-    };
-    const clock: Clock = { now: () => now };
     const forecaster = new JevForecaster({
-      transport,
-      timeoutMs: 10_000,
+      transport: { request: () => { calls += 1; return pending.promise; } },
+      timeoutMs: 1_000,
       maximumForecastAgeMs: 20_000,
-      minimumIntervalMs: 5_000,
-      clock,
+      clock: { now: () => 1_100 },
     });
-
-    const first = forecaster.forecast(snapshot(), new AbortController().signal);
-    expect(
-      await forecaster.forecast(snapshot(), new AbortController().signal),
-    ).toEqual({ status: "skipped", reason: "in_flight" });
-    now = 2_000;
+    const signal = new AbortController().signal;
+    const first = forecaster.forecast(snapshot(), signal);
+    const second = forecaster.forecast(snapshot({ recentTranscript: "A new revision" }), signal);
+    expect(calls).toBe(2);
     pending.resolve(response());
     expect((await first).status).toBe("completed");
-    now = 6_999;
-    expect(
-      await forecaster.forecast(
-        snapshot({ snapshotAtMs: now }),
-        new AbortController().signal,
-      ),
-    ).toEqual({ status: "skipped", reason: "minimum_interval" });
-    expect(calls).toBe(1);
+    expect((await second).status).toBe("completed");
+    expect((await forecaster.forecast(snapshot(), signal)).status).toBe("completed");
+    expect(calls).toBe(3);
   });
 
   it("rejects malformed and incomplete response batches", async () => {
@@ -165,7 +147,6 @@ describe("JevForecaster", () => {
       transport,
       timeoutMs: 1_000,
       maximumForecastAgeMs: 20_000,
-      minimumIntervalMs: 0,
       clock: { now: () => 1_100 },
     });
 
@@ -180,7 +161,6 @@ describe("JevForecaster", () => {
       transport: { request },
       timeoutMs: 1_000,
       maximumForecastAgeMs: 20_000,
-      minimumIntervalMs: 0,
       clock: { now: () => 1_100 },
     });
 
@@ -207,7 +187,6 @@ describe("JevForecaster", () => {
       transport,
       timeoutMs: 10_000,
       maximumForecastAgeMs: 1_000,
-      minimumIntervalMs: 0,
       clock: { now: () => now },
     });
 
@@ -241,7 +220,6 @@ describe("JevForecaster", () => {
         transport,
         timeoutMs: 100,
         maximumForecastAgeMs: 20_000,
-        minimumIntervalMs: 0,
         clock: { now: () => 1_000 },
       });
       const result = forecaster.forecast(

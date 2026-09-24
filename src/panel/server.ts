@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 import { z } from "zod";
+import { WebSocket, WebSocketServer } from "ws";
 
 import type { Logger } from "../core/log.js";
 import type { PanelState } from "./state.js";
@@ -46,6 +47,9 @@ export interface PanelServerOptions {
 export class PanelServer {
   private server: Server | undefined;
   private stopping = false;
+  private stream: WebSocketServer | undefined;
+  private unsubscribe: (() => void) | undefined;
+  private heartbeat: ReturnType<typeof setInterval> | undefined;
   private readonly requestControllers = new Set<AbortController>();
 
   public constructor(private readonly options: PanelServerOptions) {}
@@ -56,6 +60,36 @@ export class PanelServer {
     const server = createServer((request, response) => {
       void this.handle(request, response);
     });
+    const stream = new WebSocketServer({ noServer: true });
+    this.stream = stream;
+    server.on("upgrade", (request, socket, head) => {
+      const origin = request.headers.origin;
+      if (request.url !== "/v1/panel/stream" || this.stopping ||
+          (origin !== undefined && !/^chrome-extension:\/\/[a-p]{32}$/u.test(origin))) {
+        socket.destroy();
+        return;
+      }
+      stream.handleUpgrade(request, socket, head, (client) => stream.emit("connection", client));
+    });
+    stream.on("connection", (client) => {
+      client.on("error", (error) => this.options.logger.warn("Panel stream failed", { error: error.message }));
+      client.send(JSON.stringify(this.options.state.snapshot()));
+    });
+    this.unsubscribe = this.options.state.subscribe((snapshot) => {
+      const message = JSON.stringify(snapshot);
+      for (const client of stream.clients) {
+        if (client.bufferedAmount > 1_048_576) client.terminate();
+        else if (client.readyState === WebSocket.OPEN) client.send(message);
+      }
+    });
+
+    // Application messages keep the extension service worker alive while subscribed.
+    this.heartbeat = setInterval(() => {
+      for (const client of stream.clients) {
+        if (client.readyState === WebSocket.OPEN) client.send('{"type":"heartbeat"}');
+      }
+    }, 20_000);
+    this.heartbeat.unref();
     server.requestTimeout = 35_000;
     server.headersTimeout = 10_000;
     this.server = server;
@@ -79,6 +113,11 @@ export class PanelServer {
     const server = this.server;
     this.server = undefined;
     this.stopping = true;
+    clearInterval(this.heartbeat);
+    this.unsubscribe?.();
+    for (const client of this.stream?.clients ?? []) client.terminate();
+    this.stream?.close();
+    this.stream = undefined;
     for (const controller of this.requestControllers) {
       controller.abort(new Error("Panel service is stopping"));
     }

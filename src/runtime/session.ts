@@ -27,6 +27,7 @@ import {
 } from "../strategy/index.js";
 import {
   TranscriptMatcher,
+  TranscriptWindow,
   YoutubeAudioSource,
   type StreamingTranscriber,
   type TranscriptEvent,
@@ -57,7 +58,7 @@ export interface LiveSessionRuntimeOptions {
   readonly liveTrading: boolean;
   readonly sessionDataDirectory: string;
   readonly pollIntervalMs?: number;
-  readonly forecastFallbackMs?: number;
+  readonly transcriptMaximumWords?: number;
   readonly rulesCheckMs?: number;
   readonly reconcileIntervalMs?: number;
 }
@@ -176,14 +177,13 @@ export class LiveSessionRuntime {
       },
     );
     const attempts = new Map<string, AttemptState>();
-    const recentTranscript: string[] = [];
-    let latestTranscriptCutoffMs = binding.expectedStartMs;
-    const lastTopAsk = new Map<string, number | undefined>();
+    const transcript = new TranscriptWindow(this.options.transcriptMaximumWords ?? 1_000);
     const lastBookJournalAt = new Map<string, number>();
     let latestTiming: AudioTimingEvidence | undefined;
     let eventTail = Promise.resolve();
-    let forecastTask: Promise<void> | undefined;
-    let forecastQueued = false;
+    const forecastTasks = new Set<Promise<void>>();
+    let revision = 0;
+    let appliedRevision = 0;
 
     const enqueue = (operation: () => Promise<void>): void => {
       eventTail = eventTail.then(operation).catch((error: unknown) => {
@@ -200,7 +200,7 @@ export class LiveSessionRuntime {
       });
     };
 
-    const runForecast = async (): Promise<void> => {
+    const runForecast = async (recentTranscript: string, transcriptCutoffMs: number, requestRevision: number): Promise<void> => {
       if (signal.aborted || latestTiming === undefined) return;
       const now = Date.now();
       let result;
@@ -214,8 +214,8 @@ export class LiveSessionRuntime {
             eventPhase: phase(binding, now),
             elapsedMs: Math.max(0, now - binding.expectedStartMs),
             estimatedRemainingMs: Math.max(0, binding.expectedEndMs - now),
-            transcriptCutoffMs: latestTranscriptCutoffMs,
-            recentTranscript: recentTranscript.join(" "),
+            transcriptCutoffMs,
+            recentTranscript,
             earlierSummary: "",
             markets: binding.markets,
             matchedMarketIds: matcher.matchedMarketIds,
@@ -233,7 +233,8 @@ export class LiveSessionRuntime {
       }
       if (result.status !== "completed" || signal.aborted) return;
       enqueue(async () => {
-        if (signal.aborted || latestTiming === undefined) return;
+        if (signal.aborted || latestTiming === undefined || requestRevision <= appliedRevision) return;
+        appliedRevision = requestRevision;
         this.options.store.recordForecastBatch(binding.sessionId, {
           snapshotAtMs: result.answers[0]?.snapshotAtMs ?? result.requestedAtMs,
           requestedAtMs: result.requestedAtMs,
@@ -256,20 +257,9 @@ export class LiveSessionRuntime {
       });
     };
 
-    const requestForecast = (): void => {
-      if (signal.aborted) return;
-      if (forecastTask !== undefined) {
-        forecastQueued = true;
-        return;
-      }
-      forecastTask = (async () => {
-        do {
-          forecastQueued = false;
-          await runForecast();
-        } while (forecastQueued && !signal.aborted);
-      })().finally(() => {
-        forecastTask = undefined;
-      });
+    const requestForecast = (text: string, cutoffMs: number): void => {
+      const task = runForecast(text, cutoffMs, ++revision).finally(() => forecastTasks.delete(task));
+      forecastTasks.add(task);
     };
 
     const subscriber = new MarketBookSubscriber(this.options.subscriberClient, {
@@ -285,13 +275,7 @@ export class LiveSessionRuntime {
           this.options.store.recordBookSnapshot(binding.sessionId, market.marketId, snapshot);
           lastBookJournalAt.set(state.tokenId, snapshot.receivedAtMs);
         }
-        if (state.tokenId === market.yesTokenId) {
-          const topAsk = snapshot.asks[0]?.price;
-          if (lastTopAsk.get(state.tokenId) !== topAsk) {
-            lastTopAsk.set(state.tokenId, topAsk);
-            requestForecast();
-          }
-        }
+
       },
       onError: (error) => this.options.logger.warn("Market stream reconnecting", {
         sessionId: binding.sessionId,
@@ -299,11 +283,6 @@ export class LiveSessionRuntime {
       }),
     });
 
-    const forecastTimer = setInterval(
-      requestForecast,
-      this.options.forecastFallbackMs ?? 30_000,
-    );
-    forecastTimer.unref();
     const rulesTimer = setInterval(() => {
       enqueue(async () => {
         if (!(await this.options.verifier.verify(binding))) {
@@ -356,23 +335,22 @@ export class LiveSessionRuntime {
       await this.options.transcriber.run(
         source,
         (event) => {
+          if (signal.aborted) return;
+          latestTiming = {
+            observedAgeMs: event.observedAgeMs,
+            observedAgeBasis: event.observedAgeBasis,
+            observedAtMs: event.segment.receivedAtMs,
+          };
+          const text = transcript.ingest(event.segment);
+          if (text === undefined) return;
+          const update = matcher.ingest(event.segment);
+          requestForecast(text, event.segment.sourceEndMs);
           enqueue(async () => {
-            latestTiming = {
-              observedAgeMs: event.observedAgeMs,
-              observedAgeBasis: event.observedAgeBasis,
-              observedAtMs: event.segment.receivedAtMs,
-            };
-            const update = matcher.ingest(event.segment);
-            if (!event.segment.isFinal) return;
-            if (!update.addedFinal) return;
+            if (!event.segment.isFinal || !update.addedFinal || latestTiming === undefined) return;
             if (!this.options.store.recordTranscript(binding.sessionId, event.segment)) return;
-            latestTranscriptCutoffMs = event.segment.sourceEndMs;
-            recentTranscript.push(event.segment.text);
-            while (recentTranscript.join(" ").length > 8_000) recentTranscript.shift();
             for (const hit of update.hits) {
               await this.handleSniper(binding, hit, books, attempts, latestTiming, signal);
             }
-            requestForecast();
           });
         },
         signal,
@@ -390,12 +368,11 @@ export class LiveSessionRuntime {
         ));
       }
     } finally {
-      clearInterval(forecastTimer);
       clearInterval(rulesTimer);
       clearInterval(reconcileTimer);
       clearInterval(endTimer);
       await subscriber.stop();
-      await forecastTask;
+      await Promise.all(forecastTasks);
       await eventTail;
     }
   }

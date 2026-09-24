@@ -38,3 +38,52 @@ async function requestPanel(message) {
     clearTimeout(timeout);
   }
 }
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "foreteller-stream") return;
+  let socket;
+  let reconnectTimer;
+  let timeout;
+  let stopped = false;
+  let attempts = 0;
+  let servicePort;
+
+  function connect() {
+    if (stopped) return;
+    socket = new WebSocket(`ws://127.0.0.1:${servicePort}/v1/panel/stream`);
+    const current = socket;
+    timeout = setTimeout(() => current.close(), 10_000);
+    current.onopen = () => clearTimeout(timeout);
+    current.onmessage = (event) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => current.close(), 45_000);
+      const snapshot = JSON.parse(event.data);
+      if (snapshot.type !== "heartbeat") port.postMessage({ ok: true, body: snapshot });
+    };
+    current.onclose = () => {
+      clearTimeout(timeout);
+      if (stopped) return;
+      port.postMessage({ ok: false, error: attempts < 5
+        ? "Live updates disconnected. Reconnecting…"
+        : "Live updates disconnected. Reload this page to reconnect." });
+      if (attempts < 5) reconnectTimer = setTimeout(connect, Math.min(1_000 * 2 ** attempts++, 10_000));
+    };
+  }
+
+  port.onMessage.addListener((message) => {
+    if (servicePort !== undefined) return;
+    const requestedPort = Number(message.port);
+    if (!Number.isInteger(requestedPort) || requestedPort < 1_024 || requestedPort > 65_535) {
+      port.postMessage({ ok: false, error: "Invalid panel service port" });
+      return;
+    }
+    servicePort = requestedPort;
+    connect();
+  });
+  port.onDisconnect.addListener(() => {
+    stopped = true;
+    clearTimeout(reconnectTimer);
+    clearTimeout(timeout);
+    socket?.close();
+  });
+});

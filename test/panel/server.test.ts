@@ -1,4 +1,5 @@
 import { createServer } from "node:net";
+import { WebSocket } from "ws";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +16,31 @@ describe("PanelServer", () => {
 
   afterEach(async () => {
     await server?.stop();
+  });
+
+  it("pushes every state update and sends current state again on reconnect", async () => {
+    const port = await unusedPort();
+    const state = new PanelState();
+    server = new PanelServer({ state, port, logger: silentLogger, runtime: {
+      configure: async () => state.snapshot(), stop: async () => undefined,
+    } });
+    await server.start();
+    const received: PanelSnapshot[] = [];
+    const connect = (): WebSocket => {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/v1/panel/stream`);
+      socket.on("message", (message) => received.push(JSON.parse(message.toString()) as PanelSnapshot));
+      return socket;
+    };
+    const first = connect();
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    state.recordTranscript(10);
+    state.recordTranscript(20);
+    await vi.waitFor(() => expect(received.map((snapshot) => snapshot.transcriptUpdatedAtMs)).toEqual([null, 10, 20]));
+    first.terminate();
+    const second = connect();
+    await vi.waitFor(() => expect(received).toHaveLength(4));
+    expect(received[3]?.transcriptUpdatedAtMs).toBe(20);
+    second.terminate();
   });
 
   it("validates configuration before starting a panel session", async () => {

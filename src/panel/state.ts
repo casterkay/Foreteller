@@ -21,6 +21,23 @@ export interface PanelSessionStart {
 }
 
 export class PanelState {
+  private readonly listeners = new Set<(snapshot: PanelSnapshot) => void>();
+
+  public subscribe(listener: (snapshot: PanelSnapshot) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private publish(): void {
+    const snapshot = this.snapshot();
+    for (const listener of this.listeners) listener(snapshot);
+  }
+
+  public forecastFailed(message: string): void {
+    this.error = `Jev forecast unavailable: ${message}`;
+    this.publish();
+  }
+
   private status: PanelSnapshot["status"] = "idle";
   private mode: PanelSnapshot["mode"] = null;
   private youtubeUrl: string | null = null;
@@ -57,14 +74,17 @@ export class PanelState {
         jevUpdatedAtMs: null,
       });
     }
+    this.publish();
   }
 
   public markLive(): void {
     this.status = "live";
+    this.publish();
   }
 
   public recordTranscript(receivedAtMs: number): void {
     this.transcriptUpdatedAtMs = receivedAtMs;
+    this.publish();
   }
 
   public recordPrice(marketId: string, price: number | null, receivedAtMs: number): void {
@@ -72,6 +92,7 @@ export class PanelState {
     if (market === undefined) return;
     market.polymarketYesPrice = price;
     market.polymarketUpdatedAtMs = receivedAtMs;
+    this.publish();
   }
 
   public recordForecasts(forecasts: readonly ForecastAnswer[], completedAtMs: number): void {
@@ -86,20 +107,25 @@ export class PanelState {
     if (!updated) return;
     this.forecastCompletions.push(completedAtMs);
     if (this.forecastCompletions.length > 8) this.forecastCompletions.shift();
+    this.error = null;
+    this.publish();
   }
 
   public fail(message: string): void {
     this.status = "error";
     this.error = message;
+    this.publish();
   }
 
   public end(): void {
     this.status = "ended";
+    this.publish();
   }
 
   public removeMarket(marketId: string): void {
     if (!this.markets.delete(marketId)) throw new Error(`Unknown panel market ${marketId}`);
     this.retiredMarketIds.add(marketId);
+    this.publish();
   }
 
   public reset(): void {
@@ -114,6 +140,7 @@ export class PanelState {
     this.markets.clear();
     this.retiredMarketIds.clear();
     this.forecastCompletions.length = 0;
+    this.publish();
   }
 
   public snapshot(): PanelSnapshot {

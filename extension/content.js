@@ -9,7 +9,7 @@ const DEFAULT_SETTINGS = Object.freeze({
 });
 
 let panel;
-let pollTimer;
+let streamPort;
 let clockTimer;
 let backendPort = DEFAULT_SETTINGS.serverPort;
 let mountGeneration = 0;
@@ -55,9 +55,7 @@ async function mountForCurrentVideo() {
     return;
   }
   mountedVideoUrl = currentVideoUrl;
-  await refresh(generation, mountedPanel);
-  if (generation !== mountGeneration) return;
-  pollTimer = setInterval(() => void refresh(generation, mountedPanel), 1_000);
+  connectStream(generation, mountedPanel);
   clockTimer = setInterval(() => {
     if (generation === mountGeneration) mountedPanel.updateFooter();
   }, 1_000);
@@ -85,10 +83,11 @@ function createPanel(root, generation) {
     submitButton: root.querySelector('.settings button[type="submit"]'),
   };
   let snapshot = null;
+  const marketRows = new Map();
 
   elements.settingsButton.addEventListener("click", () => {
     const open = elements.settings.hidden;
-    elements.settings.hidden = !open;
+    setSettingsOpen(open);
     elements.settingsButton.setAttribute("aria-expanded", String(open));
   });
   elements.eventUrl.addEventListener("input", updateCustomFieldVisibility);
@@ -98,7 +97,9 @@ function createPanel(root, generation) {
     elements.submitButton.disabled = true;
     elements.submitButton.textContent = "Starting…";
     const settings = readSettings();
+    const portChanged = backendPort !== settings.serverPort;
     backendPort = settings.serverPort;
+    if (portChanged) connectStream(generation, { render, setError });
     await chrome.storage.sync.set({ foretellerSettings: settings });
     if (generation !== mountGeneration) return;
     const request = api("PUT", {
@@ -117,9 +118,9 @@ function createPanel(root, generation) {
       setError(response.error);
       return;
     }
-    elements.settings.hidden = true;
+    setSettingsOpen(false);
     elements.settingsButton.setAttribute("aria-expanded", "false");
-    render(response.body);
+
   });
   elements.stopButton.addEventListener("click", async () => {
     elements.stopButton.disabled = true;
@@ -129,8 +130,25 @@ function createPanel(root, generation) {
     if (generation !== mountGeneration) return;
     elements.stopButton.disabled = false;
     if (!response.ok) setError(response.error);
-    else await refresh(generation, { render, setError });
+
   });
+
+  function setSettingsOpen(open) {
+    if (elements.settings.hidden === !open) return;
+    elements.settings.getAnimations().forEach((animation) => animation.cancel());
+    if (open) elements.settings.hidden = false;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      elements.settings.hidden = !open;
+      return;
+    }
+    const height = elements.settings.scrollHeight;
+    const animation = elements.settings.animate(
+      open ? [{ opacity: 0, maxHeight: "0px" }, { opacity: 1, maxHeight: `${height}px` }]
+        : [{ opacity: 1, maxHeight: `${height}px` }, { opacity: 0, maxHeight: "0px" }],
+      { duration: 240, easing: "cubic-bezier(.2,.8,.2,1)" },
+    );
+    animation.onfinish = () => { elements.settings.hidden = !open; };
+  }
 
   function updateCustomFieldVisibility() {
     const hasEvent = elements.eventUrl.value.trim().length > 0;
@@ -172,16 +190,29 @@ function createPanel(root, generation) {
     elements.legend.hidden = nextSnapshot.status === "idle";
     elements.legend.querySelector(".pm-key").hidden = !hasPolymarket;
     setError(nextSnapshot.error ?? "");
-    elements.markets.replaceChildren();
+    const currentIds = new Set(nextSnapshot.markets.map((market) => market.marketId));
+    for (const [id, row] of marketRows) {
+      if (currentIds.has(id)) continue;
+      marketRows.delete(id);
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) row.remove();
+      else {
+        const exit = row.animate([
+          { opacity: 1, height: `${row.offsetHeight}px` },
+          { opacity: 0, height: "0px", paddingTop: "0px", paddingBottom: "0px" },
+        ], { duration: 220, easing: "ease-out", fill: "forwards" });
+        exit.onfinish = () => row.remove();
+      }
+    }
     for (const market of nextSnapshot.markets) {
-      elements.markets.append(renderMarket(
-        market,
-        hasPolymarket,
-        nextSnapshot.comparisonCoverage === "full_event",
-      ));
+      let row = marketRows.get(market.marketId);
+      if (row === undefined) {
+        row = renderMarket(market, hasPolymarket, nextSnapshot.comparisonCoverage === "full_event");
+        marketRows.set(market.marketId, row);
+        elements.markets.append(row);
+      } else updateMarket(row, market, hasPolymarket, nextSnapshot.comparisonCoverage === "full_event");
     }
     if (nextSnapshot.status === "idle") {
-      elements.settings.hidden = false;
+      setSettingsOpen(true);
       elements.settingsButton.setAttribute("aria-expanded", "true");
     }
     updateFooter();
@@ -245,18 +276,6 @@ function renderMarket(market, hasPolymarket, edgeIsComparable) {
   term.textContent = market.term;
   header.append(term);
 
-  if (
-    edgeIsComparable &&
-    hasPolymarket &&
-    market.polymarketYesPrice !== null &&
-    market.jevProbability !== null
-  ) {
-    const difference = market.jevProbability - market.polymarketYesPrice;
-    const edge = document.createElement("span");
-    edge.className = `edge${difference >= POSITIVE_EDGE_THRESHOLD ? " considerable" : ""}`;
-    edge.textContent = `${difference >= 0 ? "+" : ""}${Math.round(difference * 100)} pp`;
-    header.append(edge);
-  }
   row.append(header);
 
   const values = document.createElement("div");
@@ -269,24 +288,50 @@ function renderMarket(market, hasPolymarket, edgeIsComparable) {
   track.className = "track";
   track.setAttribute("role", "img");
   track.setAttribute("aria-label", marketAriaLabel(market, hasPolymarket));
-  if (hasPolymarket && market.polymarketYesPrice !== null && market.jevProbability !== null) {
-    const gap = document.createElement("span");
-    gap.className = "gap";
-    gap.style.left = `${Math.min(market.polymarketYesPrice, market.jevProbability) * 100}%`;
-    gap.style.width = `${Math.abs(market.jevProbability - market.polymarketYesPrice) * 100}%`;
-    track.append(gap);
-  }
-  if (hasPolymarket && market.polymarketYesPrice !== null) {
-    track.append(marker("pm", market.polymarketYesPrice));
-  }
-  if (market.jevProbability !== null) track.append(marker("jev", market.jevProbability));
   row.append(track);
 
   const axis = document.createElement("div");
   axis.className = "axis";
   axis.innerHTML = "<span>0</span><span>0.5</span><span>1</span>";
   row.append(axis);
+  updateMarket(row, market, hasPolymarket, edgeIsComparable);
   return row;
+}
+
+function updateMarket(row, market, hasPolymarket, edgeIsComparable) {
+  row.classList.toggle("jev-only", !hasPolymarket);
+  row.querySelector(".term").textContent = market.term;
+  const values = row.querySelector(".values");
+  const labels = hasPolymarket
+    ? [["PM", market.polymarketYesPrice, "¢"], ["Jev", market.jevProbability, "%"]]
+    : [["Jev", market.jevProbability, "%"]];
+  if (values.children.length !== labels.length) values.replaceChildren(...labels.map(([name, value, suffix]) => valueLabel(name, value, suffix)));
+  labels.forEach(([, value, suffix], index) => {
+    const strong = values.children[index].querySelector("strong");
+    strong.textContent = value === null ? "Awaiting data" : `${Math.round(value * 100)}${suffix}`;
+  });
+  const track = row.querySelector(".track");
+  track.setAttribute("aria-label", marketAriaLabel(market, hasPolymarket));
+  for (const [kind, value] of [["pm", hasPolymarket ? market.polymarketYesPrice : null], ["jev", market.jevProbability]]) {
+    let point = track.querySelector(`.marker.${kind}`);
+    if (point === null) { point = marker(kind, value ?? 0); track.append(point); }
+    point.hidden = value === null;
+    if (value !== null) point.style.left = `${value * 100}%`;
+  }
+  const comparable = hasPolymarket && market.polymarketYesPrice !== null && market.jevProbability !== null;
+  let gap = track.querySelector(".gap");
+  if (gap === null) { gap = document.createElement("span"); gap.className = "gap"; track.prepend(gap); }
+  gap.hidden = !comparable;
+  let edge = row.querySelector(".edge");
+  if (edge === null) { edge = document.createElement("span"); edge.className = "edge"; row.querySelector(".market-header").append(edge); }
+  edge.hidden = !comparable || !edgeIsComparable;
+  if (comparable) {
+    const difference = market.jevProbability - market.polymarketYesPrice;
+    gap.style.left = `${Math.min(market.polymarketYesPrice, market.jevProbability) * 100}%`;
+    gap.style.width = `${Math.abs(difference) * 100}%`;
+    edge.textContent = `${difference >= 0 ? "+" : ""}${Math.round(difference * 100)} pp`;
+    edge.classList.toggle("considerable", difference >= POSITIVE_EDGE_THRESHOLD);
+  }
 }
 
 function marker(kind, value) {
@@ -317,14 +362,21 @@ function marketAriaLabel(market, hasPolymarket) {
   return parts.join(", ");
 }
 
-async function refresh(generation, mountedPanel) {
-  const response = await api("GET");
-  if (generation !== mountGeneration) return;
-  if (!response.ok) {
-    mountedPanel.setError(response.error);
-    return;
-  }
-  mountedPanel.render(response.body);
+function connectStream(generation, mountedPanel) {
+  streamPort?.disconnect();
+  const connection = chrome.runtime.connect({ name: "foreteller-stream" });
+  streamPort = connection;
+  connection.onMessage.addListener((response) => {
+    if (generation !== mountGeneration || streamPort !== connection) return;
+    if (response.ok) mountedPanel.render(response.body);
+    else mountedPanel.setError(response.error);
+  });
+  connection.onDisconnect.addListener(() => {
+    if (generation === mountGeneration && streamPort === connection) {
+      mountedPanel.setError("Live connection closed. Reload this page to reconnect.");
+    }
+  });
+  connection.postMessage({ port: backendPort });
 }
 
 async function api(method, body) {
@@ -375,7 +427,8 @@ function formatElapsed(milliseconds) {
 }
 
 function clearTimers() {
-  clearInterval(pollTimer);
+  streamPort?.disconnect();
+  streamPort = undefined;
   clearInterval(clockTimer);
 }
 
@@ -393,14 +446,16 @@ function template() {
     <style>
       :host { display:block; margin:0 0 16px; color-scheme:light dark; }
       * { box-sizing:border-box; }
-      .panel { --bg:light-dark(#fff,#181818); --text:light-dark(#20242c,#f1f1f1); --muted:light-dark(#687080,#aaa); --line:light-dark(#e5e7eb,#383838); --track:light-dark(#edf0f5,#33373f); --pm:light-dark(#2563eb,#72a4ff); --jev:light-dark(#7756d8,#b29aff); --positive:light-dark(#176b45,#83e6ad); --positive-bg:light-dark(#eaf7ef,#17372a); background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:12px; overflow:hidden; font:14px/1.45 Roboto,Arial,sans-serif; box-shadow:0 4px 18px #0000000a; }
+      .panel { --bg:light-dark(#fff,#181818); --text:light-dark(#20242c,#f1f1f1); --muted:light-dark(#687080,#aaa); --line:light-dark(#e5e7eb,#383838); --track:light-dark(#edf0f5,#33373f); --pm:light-dark(#2563eb,#72a4ff); --jev:light-dark(#7756d8,#b29aff); --positive:light-dark(#176b45,#83e6ad); --positive-bg:light-dark(#eaf7ef,#17372a); background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:18px; overflow:hidden; font:14px/1.45 Roboto,Arial,sans-serif; box-shadow:0 8px 32px #00000012; }
       button,input,textarea { font:inherit; }
-      button { color:inherit; }
+      button { color:inherit; cursor:pointer; transition:background 160ms ease,transform 160ms ease,opacity 160ms ease; }
+      button:active { transform:scale(.97); }
+      button:focus-visible { outline:2px solid var(--jev); outline-offset:3px; }
       .header { padding:18px 20px 15px; }
       .top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
       .settings-button { min-height:36px; padding:7px 9px; border:0; border-radius:8px; background:transparent; }
       .settings-button:hover { background:var(--track); }
-      h2 { min-width:0; margin:0; font-size:18px; line-height:1.35; font-weight:500; overflow-wrap:anywhere; letter-spacing:0; }
+      h2 { min-width:0; margin:0; font-size:18px; line-height:1.35; font-weight:600; overflow-wrap:anywhere; letter-spacing:0; }
       .status-row { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; }
       .connection-status::before { content:""; display:inline-block; width:7px; height:7px; margin-right:7px; border-radius:50%; background:var(--muted); }
       .connection-status[data-status="live"]::before { background:var(--positive); box-shadow:0 0 0 3px color-mix(in srgb,var(--positive) 15%,transparent); }
@@ -410,7 +465,7 @@ function template() {
       .legend span { display:flex; align-items:center; gap:7px; }
       .legend i { display:block; width:9px; height:9px; background:var(--jev); border-radius:2px; transform:rotate(45deg); }
       .legend .pm-key i { background:var(--pm); border-radius:50%; transform:none; }
-      .market { padding:17px 20px 14px; border-top:1px solid var(--line); }
+      .market { overflow:hidden; animation:arrive 240ms ease-out; padding:17px 20px 14px; border-top:1px solid var(--line); }
       .market-header { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
       .term { min-width:0; font-weight:500; overflow-wrap:anywhere; }
       .edge { flex:none; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
@@ -418,13 +473,13 @@ function template() {
       .values { display:flex; flex-wrap:wrap; gap:16px; margin-top:6px; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
       .values strong { color:var(--text); font-weight:500; }
       .track { position:relative; height:4px; margin:22px 7px 13px; border-radius:8px; background:var(--track); }
-      .gap { position:absolute; inset-block:0; background:color-mix(in srgb,var(--jev) 28%,transparent); transition:left 600ms cubic-bezier(.2,.8,.2,1),width 600ms cubic-bezier(.2,.8,.2,1); }
-      .marker { position:absolute; top:50%; width:11px; height:11px; box-shadow:0 0 0 3px var(--bg); transition:left 600ms cubic-bezier(.2,.8,.2,1); }
+      .gap { position:absolute; inset-block:0; background:color-mix(in srgb,var(--jev) 28%,transparent); transition:left 280ms cubic-bezier(.2,.8,.2,1),width 280ms cubic-bezier(.2,.8,.2,1); }
+      .marker { position:absolute; top:50%; width:11px; height:11px; box-shadow:0 0 0 3px var(--bg); transition:left 280ms cubic-bezier(.2,.8,.2,1); }
       .marker.pm { top:7px; border-radius:50%; background:var(--pm); transform:translate(-50%,-50%); }
       .marker.jev { top:-5px; border-radius:2px; background:var(--jev); transform:translate(-50%,-50%) rotate(45deg); }
       .jev-only .marker.jev { top:50%; border-radius:50%; transform:translate(-50%,-50%); }
       .axis { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
-      .settings { padding:17px 20px; border-top:1px solid var(--line); }
+      .settings { overflow:hidden; padding:17px 20px; border-top:1px solid var(--line); }
       label { display:block; margin-bottom:14px; color:var(--muted); font-size:12px; }
       input,textarea { display:block; width:100%; margin-top:6px; padding:10px 11px; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:7px; outline:none; }
       input:focus,textarea:focus { border-color:var(--jev); box-shadow:0 0 0 2px color-mix(in srgb,var(--jev) 20%,transparent); }
@@ -439,7 +494,8 @@ function template() {
       .footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:13px 20px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; }
       .footer-status { font-variant-numeric:tabular-nums; }
       [hidden] { display:none !important; }
-      @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+      @keyframes arrive { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+      @media (prefers-reduced-motion:reduce) { * { transition:none !important; animation:none !important; } }
       @media (pointer:coarse) { button { min-height:44px; } input,textarea { font-size:16px; } }
     </style>
     <div class="panel">

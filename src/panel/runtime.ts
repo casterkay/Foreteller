@@ -11,6 +11,7 @@ import {
 import type { BookState } from "../market/types.js";
 import {
   TranscriptMatcher,
+  TranscriptWindow,
   YoutubeAudioSource,
   type AudioSource,
   type StreamingTranscriber,
@@ -32,7 +33,7 @@ export interface PanelRuntimeOptions {
   readonly logger: Logger;
   readonly minimumWordConfidence?: number;
   readonly primarySpeaker?: number;
-  readonly forecastFallbackMs?: number;
+  readonly transcriptMaximumWords?: number;
 
   /** How long the panel tolerates an unresponsive market stream before abandoning it. */
   readonly marketSubscriptionTimeoutMs?: number;
@@ -155,10 +156,10 @@ export class PanelRuntime {
     signal: AbortSignal,
     startedAtMs: number,
   ): Promise<void> {
-    const recentTranscript: string[] = [];
-    let transcriptCutoffMs = startedAtMs;
-    let forecastTask: Promise<void> | undefined;
-    let forecastQueued = false;
+    const transcript = new TranscriptWindow(this.options.transcriptMaximumWords ?? 1_000);
+    const forecastTasks = new Set<Promise<void>>();
+    let revision = 0;
+    let appliedRevision = 0;
     const matcher = session.eventProposal === null
       ? undefined
       : new TranscriptMatcher(
@@ -169,7 +170,7 @@ export class PanelRuntime {
           },
         );
 
-    const runForecast = async (): Promise<void> => {
+    const runForecast = async (recentTranscript: string, transcriptCutoffMs: number, requestRevision: number): Promise<void> => {
       if (signal.aborted || recentTranscript.length === 0) return;
       const matchedMarketIds = matcher?.matchedMarketIds ?? new Set<string>();
       const activeMarkets = session.markets.filter(
@@ -188,43 +189,29 @@ export class PanelRuntime {
           ? null
           : Math.max(0, session.expectedEndMs - now),
         transcriptCutoffMs,
-        recentTranscript: recentTranscript.join(" "),
+        recentTranscript,
         earlierSummary: "",
         markets: activeMarkets,
         matchedMarketIds,
       });
       const result = await this.options.forecaster.forecast(snapshot, signal);
-      if (result.status === "completed" && !signal.aborted) {
+      if (result.status === "completed" && !signal.aborted && requestRevision > appliedRevision) {
+        appliedRevision = requestRevision;
         this.options.state.recordForecasts(result.answers, result.completedAtMs);
       }
     };
 
-    const requestForecast = (): void => {
-      if (signal.aborted) return;
-      if (forecastTask !== undefined) {
-        forecastQueued = true;
-        return;
-      }
-      forecastTask = (async () => {
-        do {
-          forecastQueued = false;
-          await runForecast();
-        } while (forecastQueued && !signal.aborted);
-      })().catch((error: unknown) => {
+    const requestForecast = (text: string, cutoffMs: number): void => {
+      const task = runForecast(text, cutoffMs, ++revision).catch((error: unknown) => {
         if (!signal.aborted) {
+          this.options.state.forecastFailed(errorMessage(error));
           this.options.logger.warn("Panel forecast unavailable", { error: errorMessage(error) });
         }
-      }).finally(() => {
-        forecastTask = undefined;
-      });
+      }).finally(() => forecastTasks.delete(task));
+      forecastTasks.add(task);
     };
 
     const subscriber = this.createSubscriber(session);
-    const forecastTimer = setInterval(
-      requestForecast,
-      this.options.forecastFallbackMs ?? 30_000,
-    );
-    forecastTimer.unref();
     subscriber?.start();
     this.options.state.markLive();
 
@@ -236,24 +223,22 @@ export class PanelRuntime {
       await this.options.transcriber.run(
         audioSource,
         (event) => {
-          if (!event.segment.isFinal || signal.aborted) return;
+          if (signal.aborted) return;
+          const text = transcript.ingest(event.segment);
+          if (text === undefined) return;
           const transcriptUpdate = matcher?.ingest(event.segment);
           for (const hit of transcriptUpdate?.hits ?? []) {
             this.options.state.removeMarket(hit.marketId);
           }
-          transcriptCutoffMs = event.segment.sourceEndMs;
-          recentTranscript.push(event.segment.text);
-          while (recentTranscript.join(" ").length > 8_000) recentTranscript.shift();
           this.options.state.recordTranscript(event.segment.receivedAtMs);
-          requestForecast();
+          requestForecast(text, event.segment.sourceEndMs);
         },
         signal,
       );
       if (!signal.aborted) throw new Error("The live transcription source ended");
     } finally {
-      clearInterval(forecastTimer);
       await subscriber?.stop();
-      await forecastTask;
+      await Promise.all(forecastTasks);
     }
   }
 
