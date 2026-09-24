@@ -8,10 +8,16 @@ import {
 import type { Clock } from "../core/clock.js";
 import { systemClock } from "../core/clock.js";
 import type { ForecastAnswer, TermSpec } from "../domain/types.js";
+import { truncateToRecentWords } from "../transcript/transcript.js";
 
 export type ForecastTerm = Pick<
   TermSpec,
-  "marketId" | "label" | "acceptedForms" | "excludedForms" | "speakerScope"
+  | "marketId"
+  | "label"
+  | "acceptedForms"
+  | "excludedForms"
+  | "speakerScope"
+  | "mentionThreshold"
 > & Partial<Pick<TermSpec, "windowStartMs" | "windowEndMs">>;
 
 export interface ForecastMarket {
@@ -30,10 +36,23 @@ export interface ForecastSnapshot {
   readonly elapsedMs: number;
   readonly estimatedRemainingMs: number | null;
   readonly transcriptCutoffMs: number;
-  readonly recentTranscript: string;
+
+  /** The whole transcript so far; the request carries only its newest words. */
+  readonly transcript: string;
   readonly earlierSummary: string;
   readonly markets: readonly ForecastMarket[];
-  readonly matchedMarketIds: ReadonlySet<string>;
+
+  /** Markets whose mention threshold the exact matcher already counted out. */
+  readonly satisfiedMarketIds: ReadonlySet<string>;
+
+  /** Qualifying mentions counted so far, by market. */
+  readonly mentionCounts: ReadonlyMap<string, number>;
+
+  /**
+   * Whether counting covered the qualifying event from its start. Count markets
+   * are unforecastable without it: an undercounted past inflates what remains.
+   */
+  readonly mentionCountsComplete: boolean;
 }
 
 export interface JevRequest {
@@ -56,12 +75,15 @@ export interface JevForecasterOptions {
   readonly model?: string;
   readonly timeoutMs: number;
   readonly maximumForecastAgeMs: number;
+
+  /** Newest transcript words carried verbatim in each request. */
+  readonly transcriptMaximumWords: number;
   readonly clock?: Clock;
   readonly transport?: JevTransport;
 }
 
 export type ForecastSkipReason =
-  | "no_unmatched_markets"
+  | "no_forecastable_markets"
   | "event_ended"
   | "stale_snapshot";
 
@@ -179,10 +201,12 @@ function validateAnswers(
 function createRequest(
   snapshot: ForecastSnapshot,
   model: string,
+  transcriptMaximumWords: number,
 ): {
   readonly request: JevRequest;
   readonly questionMarketIds: ReadonlyMap<string, string>;
 } {
+  const recentVerbatim = truncateToRecentWords(snapshot.transcript, transcriptMaximumWords);
   const state = Object.freeze({
     event: Object.freeze({
       title: snapshot.eventTitle,
@@ -194,28 +218,40 @@ function createRequest(
     }),
     transcript: Object.freeze({
       cutoff_ms: snapshot.transcriptCutoffMs,
-      recent_verbatim: snapshot.recentTranscript,
+      recent_verbatim: recentVerbatim,
       earlier_summary: snapshot.earlierSummary,
+      earlier_words_omitted: countWords(snapshot.transcript) - countWords(recentVerbatim),
     }),
   });
   const questions: Record<string, NoulQuestion> = {};
   const questionMarketIds = new Map<string, string>();
   let index = 0;
   for (const market of snapshot.markets) {
-    if (snapshot.matchedMarketIds.has(market.marketId)) continue;
+    if (snapshot.satisfiedMarketIds.has(market.marketId)) continue;
+    const threshold = market.term.mentionThreshold;
+    const countedMentions = snapshot.mentionCounts.get(market.marketId) ?? 0;
+
+    // A threshold market asks about the mentions still owed, so a past counted
+    // from an incomplete transcript would silently overstate them.
+    if (threshold > 1 && !snapshot.mentionCountsComplete) continue;
+    const remainingMentions = Math.max(1, threshold - countedMentions);
     const questionId = `market_${String(index)}`;
     index += 1;
     questionMarketIds.set(questionId, market.marketId);
     questions[questionId] = noul(
       {
-        question:
-          "Will the qualifying speaker mention this term after the transcript cutoff and before the qualifying event ends?",
+        question: remainingMentions === 1
+          ? "Will the qualifying speaker mention this term after the transcript cutoff and before the qualifying event ends?"
+          : `Will the qualifying speaker mention this term at least ${String(remainingMentions)} more times after the transcript cutoff and before the qualifying event ends?`,
         market_question: market.question,
         market_description: market.description,
         term_label: market.term.label,
         accepted_forms: [...market.term.acceptedForms],
         excluded_forms: [...market.term.excludedForms],
         speaker_scope: market.term.speakerScope,
+        mention_threshold: threshold,
+        counted_mentions_so_far: countedMentions,
+        additional_mentions_required: remainingMentions,
         ...(market.term.windowStartMs === undefined || market.term.windowEndMs === undefined
           ? {}
           : {
@@ -225,11 +261,16 @@ function createRequest(
               },
             }),
       },
-      {
-        true: "The term will be mentioned within the qualifying rules and remaining window.",
-        false:
-          "The term will not be mentioned within the qualifying rules and remaining window.",
-      },
+      remainingMentions === 1
+        ? {
+            true: "The term will be mentioned within the qualifying rules and remaining window.",
+            false:
+              "The term will not be mentioned within the qualifying rules and remaining window.",
+          }
+        : {
+            true: `The term will be mentioned at least ${String(remainingMentions)} more times within the qualifying rules and remaining window.`,
+            false: `The term will be mentioned fewer than ${String(remainingMentions)} more times within the qualifying rules and remaining window.`,
+          },
     );
   }
   return Object.freeze({
@@ -240,6 +281,10 @@ function createRequest(
     }),
     questionMarketIds,
   });
+}
+
+function countWords(text: string): number {
+  return text.trim().length === 0 ? 0 : text.trim().split(/\s+/u).length;
 }
 
 async function requestWithTimeout(
@@ -281,6 +326,7 @@ export class JevForecaster {
   readonly #model: string;
   readonly #timeoutMs: number;
   readonly #maximumForecastAgeMs: number;
+  readonly #transcriptMaximumWords: number;
   readonly #clock: Clock;
   readonly #transport: JevTransport;
 
@@ -289,6 +335,13 @@ export class JevForecaster {
     if (options.maximumForecastAgeMs < 0) {
       throw new RangeError("maximumForecastAgeMs cannot be negative");
     }
+    if (
+      !Number.isInteger(options.transcriptMaximumWords) ||
+      options.transcriptMaximumWords <= 0
+    ) {
+      throw new RangeError("transcriptMaximumWords must be a positive integer");
+    }
+    this.#transcriptMaximumWords = options.transcriptMaximumWords;
     this.#model = options.model ?? "jev-latest";
     this.#timeoutMs = options.timeoutMs;
     this.#maximumForecastAgeMs = options.maximumForecastAgeMs;
@@ -309,9 +362,13 @@ export class JevForecaster {
       return Object.freeze({ status: "skipped", reason: "event_ended" });
     }
 
-    const { request, questionMarketIds } = createRequest(snapshot, this.#model);
+    const { request, questionMarketIds } = createRequest(
+      snapshot,
+      this.#model,
+      this.#transcriptMaximumWords,
+    );
     if (questionMarketIds.size === 0) {
-      return Object.freeze({ status: "skipped", reason: "no_unmatched_markets" });
+      return Object.freeze({ status: "skipped", reason: "no_forecastable_markets" });
     }
 
     const requestedAtMs = this.#clock.now();

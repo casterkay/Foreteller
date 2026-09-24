@@ -39,6 +39,7 @@ const binding: SessionBinding = Object.freeze({
         speakerScope: "primary",
         windowStartMs: 1_000,
         windowEndMs: 10_000,
+        mentionThreshold: 1,
       }),
     }),
   ]),
@@ -84,7 +85,9 @@ describe("session reporting", () => {
         sourceEndMs: 2_100,
         minimumConfidence: 0.95,
         segmentIds: ["segment-1"],
+        mentionCount: 1,
       },
+      mentionCountsComplete: true,
       market,
       book: {
         tokenId: market.yesTokenId,

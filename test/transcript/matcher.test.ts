@@ -16,6 +16,7 @@ function term(overrides: Partial<TermSpec> = {}): TermSpec {
     speakerScope: "anyone",
     windowStartMs: 0,
     windowEndMs: 60_000,
+    mentionThreshold: 1,
     ...overrides,
   });
 }
@@ -73,6 +74,7 @@ describe("TranscriptMatcher", () => {
         sourceEndMs: 1_300,
         minimumConfidence: 0.87,
         segmentIds: ["one", "two"],
+        mentionCount: 1,
       },
     ]);
   });
@@ -190,5 +192,43 @@ describe("TranscriptMatcher", () => {
         ]),
       ).hits,
     ).toHaveLength(1);
+  });
+
+  it("counts every mention and fires only when the threshold is reached", () => {
+    const matcher = new TranscriptMatcher(
+      [term({ acceptedForms: ["AI"], mentionThreshold: 3 })],
+      { minimumWordConfidence: 0.8 },
+    );
+
+    expect(matcher.ingest(segment("one", [word("AI", 100)])).hits).toEqual([]);
+    expect(matcher.mentionCounts.get("market-1")).toBe(1);
+    expect(matcher.satisfiedMarketIds.has("market-1")).toBe(false);
+
+    expect(matcher.ingest(segment("two", [word("AI", 200)])).hits).toEqual([]);
+    expect(matcher.mentionCounts.get("market-1")).toBe(2);
+
+    const third = matcher.ingest(segment("three", [word("AI", 300)]));
+    expect(third.hits).toHaveLength(1);
+    expect(third.hits[0]?.mentionCount).toBe(3);
+    expect(matcher.satisfiedMarketIds.has("market-1")).toBe(true);
+
+    // Further mentions cannot change a satisfied market.
+    expect(matcher.ingest(segment("four", [word("AI", 400)])).hits).toEqual([]);
+    expect(matcher.mentionCounts.get("market-1")).toBe(3);
+  });
+
+  it("does not count an overlapping excluded phrase toward the threshold", () => {
+    const matcher = new TranscriptMatcher(
+      [term({ acceptedForms: ["Trump"], excludedForms: ["Donald Trump"], mentionThreshold: 2 })],
+      { minimumWordConfidence: 0.8 },
+    );
+
+    expect(
+      matcher.ingest(segment("a", [word("Donald", 100), word("Trump", 200)])).hits,
+    ).toEqual([]);
+    expect(matcher.mentionCounts.get("market-1")).toBe(0);
+
+    expect(matcher.ingest(segment("b", [word("Trump", 300)])).hits).toEqual([]);
+    expect(matcher.mentionCounts.get("market-1")).toBe(1);
   });
 });

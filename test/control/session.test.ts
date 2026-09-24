@@ -145,6 +145,7 @@ function proposal(rulesHash: string): EventProposal {
           speakerScope: "primary",
           windowStartMs: timestamp,
           windowEndMs: timestamp + 60_000,
+          mentionThreshold: 1,
         },
       },
     ],

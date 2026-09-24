@@ -192,6 +192,7 @@ function createHarness(options: {
     logger: silentLogger,
     liveTrading: false,
     sessionDataDirectory: "/tmp/foreteller-runtime-test",
+    mentionCountCoverageGraceMs: 15_000,
     rulesCheckMs: 100_000,
     reconcileIntervalMs: options.reconcileIntervalMs ?? 100_000,
   });
@@ -233,6 +234,7 @@ function sessionBinding(now: number, expectedEndMs: number): SessionBinding {
           speakerScope: "primary",
           windowStartMs: now - 1_000,
           windowEndMs: expectedEndMs,
+          mentionThreshold: 1,
         },
       },
     ],
@@ -358,7 +360,7 @@ class SkippedForecaster implements SessionForecaster {
     _snapshot: ForecastSnapshot,
     _signal: AbortSignal,
   ): Promise<ForecastBatchResult> {
-    return Promise.resolve({ status: "skipped", reason: "no_unmatched_markets" });
+    return Promise.resolve({ status: "skipped", reason: "no_forecastable_markets" });
   }
 }
 
@@ -373,7 +375,7 @@ class ControlledForecaster implements SessionForecaster {
   ): Promise<ForecastBatchResult> {
     this.calls += 1;
     if (this.calls > 1) {
-      return Promise.resolve({ status: "skipped", reason: "no_unmatched_markets" });
+      return Promise.resolve({ status: "skipped", reason: "no_forecastable_markets" });
     }
     this.snapshot = snapshot;
     return new Promise((resolve) => {

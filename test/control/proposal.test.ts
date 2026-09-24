@@ -36,7 +36,48 @@ describe("PolymarketEventProposer", () => {
       fakeClient({ id: "event-1", title: "Speech", markets: unsafe } as unknown as Event),
     );
 
-    await expect(proposer.propose("event-1")).rejects.toThrow(/no unambiguous single-mention/);
+    await expect(proposer.propose("event-1")).rejects.toThrow(/no unambiguous mention/);
+  });
+
+  it("admits an at-least count market and splits its slash alternatives", async () => {
+    const countEvent = {
+      id: "event-1",
+      title: "Speech",
+      markets: [
+        market(
+          "magnitude",
+          "Million / Billion / Trillion 10+ times",
+          "Will the speaker mention Million, Billion, or Trillion 10+ times?",
+        ),
+      ],
+    } as unknown as Event;
+    const proposer = new PolymarketEventProposer(fakeClient(countEvent));
+
+    const proposal = await proposer.propose("event-1");
+
+    expect(proposal.markets).toHaveLength(1);
+    expect(proposal.markets[0]?.term).toMatchObject({
+      label: "Million / Billion / Trillion",
+      acceptedForms: ["Million", "Billion", "Trillion"],
+      mentionThreshold: 10,
+    });
+  });
+
+  it("rejects a count market whose question bounds the count from above", async () => {
+    const boundedEvent = {
+      id: "event-1",
+      title: "Speech",
+      markets: [
+        market(
+          "bounded",
+          "Beta 10+ times",
+          "Will the speaker mention Beta at most 10 times?",
+        ),
+      ],
+    } as unknown as Event;
+    const proposer = new PolymarketEventProposer(fakeClient(boundedEvent));
+
+    await expect(proposer.propose("event-1")).rejects.toThrow(/no unambiguous mention/);
   });
 
   it("resolves a Polymarket event URL before loading market details", async () => {

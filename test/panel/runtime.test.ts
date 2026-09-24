@@ -50,10 +50,10 @@ describe("PanelRuntime", () => {
     await vi.waitFor(() => expect(forecaster.snapshots).toHaveLength(2));
 
     const latest = forecaster.snapshots[1];
-    expect(latest?.recentTranscript).toBe("opening statement latest context");
+    expect(latest?.transcript).toBe("opening statement latest context");
     expect(latest?.transcriptCutoffMs).toBe(2_000);
     expect(latest?.markets.map((market) => market.term.label)).toEqual(["alpha", "beta"]);
-    expect(latest?.matchedMarketIds.size).toBe(0);
+    expect(latest?.satisfiedMarketIds.size).toBe(0);
     expect(state.snapshot().youtubeUrl).toBe("https://www.youtube.com/watch?v=video-1");
     expect(state.snapshot().markets.map((market) => market.jevProbability)).toEqual([0.7, 0.7]);
 
@@ -71,7 +71,6 @@ describe("PanelRuntime", () => {
       videoProbe: { inspect: async () => ({ videoId: "video-1", title: "Speech", channelId: "channel-1", liveStatus: "is_live" }) },
       subscriberClient: unusedSubscriptionClient,
       logger: silentLogger,
-      transcriptMaximumWords: 3,
       createAudioSource: () => unusedAudioSource,
     });
     await runtime.configure({ youtubeUrl: "https://www.youtube.com/watch?v=video-1", eventUrl: "",
@@ -80,7 +79,7 @@ describe("PanelRuntime", () => {
     const second = transcript("one two three four", 2_000);
     transcriber.emit({ ...first, segment: { ...first.segment, isFinal: false } });
     transcriber.emit({ ...second, segment: { ...second.segment, isFinal: false } });
-    expect(pending.map((request) => request.snapshot.recentTranscript)).toEqual(["one two", "two three four"]);
+    expect(pending.map((request) => request.snapshot.transcript)).toEqual(["one two", "one two three four"]);
     const observed: Array<number | null | undefined> = [];
     const unsubscribe = state.subscribe((snapshot) => observed.push(snapshot.markets[0]?.jevProbability));
     const newer = pending[1];
@@ -527,6 +526,7 @@ function eventMarket(expectedEndMs: number) {
       speakerScope: "primary" as const,
       windowStartMs: expectedEndMs - 60_000,
       windowEndMs: expectedEndMs,
+      mentionThreshold: 1,
     }),
   });
 }

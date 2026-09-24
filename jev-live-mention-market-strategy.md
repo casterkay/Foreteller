@@ -56,7 +56,8 @@ all of the following reasonably clear:
 
 Initial exclusions:
 
-- count thresholds such as "10+ times";
+- count markets whose outcome bounds the count from above ("at most", "fewer
+  than", "exactly", "between") — YES-only sizing cannot express them;
 - social-post, article, or prerecorded-release markets;
 - sports commentary and other markets whose outcome depends primarily on
   non-linguistic state;
@@ -369,12 +370,20 @@ The research MVP is complete when it can:
 Each distinct transcript revision, including interim ASR hypotheses and finalized
 segments, triggers one batched Jev request for unresolved terms. Finalized speech
 is retained once; the current interim hypothesis replaces the previous hypothesis.
-Retain only the newest `TRANSCRIPT_MAXIMUM_WORDS` words (default 1,000), truncating
-from the left. Do not trigger inference on book changes or periodic timers.
-There is no inference cooldown or in-flight coalescing. Bound each call by its
-request timeout and cancel it when the session ends. Completed responses carry
-revision ordering: an older response cannot overwrite a newer forecast. Only
-confirmed transcripts can establish qualifying mentions.
+The full transcript is retained for the whole event so mention counts stay exact;
+only the payload Jev receives is left-truncated to the newest
+`TRANSCRIPT_MAXIMUM_WORDS` words (default 1,000). Do not trigger inference on book
+changes or periodic timers. There is no inference cooldown or in-flight coalescing.
+Bound each call by its request timeout and cancel it when the session ends.
+Completed responses carry revision ordering: an older response cannot overwrite a
+newer forecast. Only confirmed transcripts can establish qualifying mentions.
+
+At-least count markets (`TERM N+ times`) are forecast as the remaining mentions:
+Jev is asked whether the term will be mentioned at least `N = M - K` more times,
+where `M` is the threshold and `K` is the qualifying mentions counted so far from
+the full transcript. A count market is forecastable only when transcription
+covered the qualifying event from its start; otherwise the counted past is a
+floor and the market is excluded from that session rather than understated.
 
 The extension receives state changes immediately over a persistent connection,
 reconciles current state after reconnecting, and retains market DOM nodes for

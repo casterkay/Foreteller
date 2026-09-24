@@ -15,6 +15,7 @@ const term = {
   speakerScope: "primary" as const,
   windowStartMs: 0,
   windowEndMs: 1_000,
+  mentionThreshold: 1,
 };
 
 describe("PolymarketMarketData", () => {

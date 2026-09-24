@@ -26,6 +26,7 @@ const market: MarketDefinition = {
     speakerScope: "primary",
     windowStartMs: nowMs - 60_000,
     windowEndMs: nowMs + 60_000,
+    mentionThreshold: 1,
   },
 };
 
@@ -37,6 +38,7 @@ const mention: MentionHit = {
   sourceEndMs: nowMs - 900,
   minimumConfidence: 0.95,
   segmentIds: ["segment-1"],
+  mentionCount: 1,
 };
 
 function book(asks: readonly { readonly price: number; readonly size: number }[]): BookSnapshot {
@@ -70,6 +72,7 @@ describe("decideSniperOrder", () => {
         { price: 0.98, size: 20 },
       ]),
       mention,
+      mentionCountsComplete: true,
       nowMs,
       remainingAllowance: 5,
       attempts: 0,
@@ -89,6 +92,7 @@ describe("decideSniperOrder", () => {
       market,
       book: book([{ price: 0.9, size: 100 }]),
       mention,
+      mentionCountsComplete: true,
       nowMs,
       remainingAllowance: 20,
       limits: defaultLimits,
@@ -108,6 +112,7 @@ describe("decideSniperOrder", () => {
     const input = {
       market,
       mention,
+      mentionCountsComplete: true,
       nowMs,
       remainingAllowance: 20,
       attempts: 0,
@@ -131,7 +136,7 @@ describe("decideForecastOrder", () => {
       ]),
       forecast: forecast(),
       feeSchedule: { rate: 0.1, exponent: 1 },
-      marketAlreadyMatched: false,
+      marketAlreadySatisfied: false,
       nowMs,
       remainingAllowance: 15,
       lastAttemptAtMs: undefined,
@@ -161,18 +166,18 @@ describe("decideForecastOrder", () => {
       decideForecastOrder({
         ...common,
         forecast: forecast({ snapshotAtMs: nowMs - 20_001 }),
-        marketAlreadyMatched: false,
+        marketAlreadySatisfied: false,
       }),
     ).toMatchObject({ reason: "forecast_stale" });
     expect(
-      decideForecastOrder({ ...common, forecast: forecast(), marketAlreadyMatched: true }),
-    ).toMatchObject({ reason: "market_already_matched" });
+      decideForecastOrder({ ...common, forecast: forecast(), marketAlreadySatisfied: true }),
+    ).toMatchObject({ reason: "market_already_satisfied" });
     expect(
       decideForecastOrder({
         ...common,
         book: book([{ price: 0.5, size: 0.5 }]),
         forecast: forecast(),
-        marketAlreadyMatched: false,
+        marketAlreadySatisfied: false,
       }),
     ).toMatchObject({ reason: "below_minimum_order_size" });
   });
@@ -183,7 +188,7 @@ describe("decideForecastOrder", () => {
       book: book([{ price: 0.91, size: 100 }]),
       forecast: forecast({ probability: 0.99 }),
       feeSchedule: undefined,
-      marketAlreadyMatched: false,
+      marketAlreadySatisfied: false,
       nowMs,
       remainingAllowance: 15,
       lastAttemptAtMs: undefined,

@@ -15,6 +15,9 @@ export interface TermSpec {
   readonly speakerScope: "anyone" | "primary";
   readonly windowStartMs: number;
   readonly windowEndMs: number;
+
+  /** Qualifying mentions required to resolve YES; 1 for a plain mention market. */
+  readonly mentionThreshold: number;
 }
 
 export interface MarketDefinition {
@@ -89,6 +92,9 @@ export interface MentionHit {
   readonly sourceEndMs: number;
   readonly minimumConfidence: number;
   readonly segmentIds: readonly string[];
+
+  /** Qualifying mentions counted through this one; equals the term threshold. */
+  readonly mentionCount: number;
 }
 
 export interface ForecastAnswer {

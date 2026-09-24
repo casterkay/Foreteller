@@ -13,6 +13,7 @@ const market: ForecastMarket = Object.freeze({
     acceptedForms: Object.freeze(["alpha"]),
     excludedForms: Object.freeze([]),
     speakerScope: "primary",
+    mentionThreshold: 1,
   }),
 });
 

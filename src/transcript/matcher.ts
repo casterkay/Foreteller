@@ -15,13 +15,27 @@ interface CompiledTerm {
   readonly spec: TermSpec;
   readonly accepted: readonly (readonly string[])[];
   readonly excluded: readonly (readonly string[])[];
+  readonly longestAcceptedForm: number;
+}
+
+interface TermState {
+  readonly term: CompiledTerm;
+  count: number;
+
+  /** First word index that may still begin an uncounted qualifying mention. */
+  scanFrom: number;
 }
 
 export interface TranscriptUpdate {
   readonly addedFinal: boolean;
   readonly finalSegments: readonly TranscriptSegment[];
   readonly interim: TranscriptSegment | null;
+
+  /** Mentions that satisfied a market's threshold, at most one per market. */
   readonly hits: readonly MentionHit[];
+
+  /** Qualifying mentions counted so far, by market, capped at each threshold. */
+  readonly mentionCounts: ReadonlyMap<string, number>;
 }
 
 export interface TranscriptMatcherOptions {
@@ -41,10 +55,14 @@ function compile(spec: TermSpec): CompiledTerm {
   if (accepted.length === 0) {
     throw new Error(`Term ${spec.marketId} has no usable accepted forms`);
   }
+  if (!Number.isInteger(spec.mentionThreshold) || spec.mentionThreshold < 1) {
+    throw new RangeError(`Term ${spec.marketId} needs a positive integer mention threshold`);
+  }
   return Object.freeze({
     spec,
     accepted,
     excluded: spec.excludedForms.map(normalize).filter((form) => form.length > 0),
+    longestAcceptedForm: Math.max(...accepted.map((form) => form.length)),
   });
 }
 
@@ -80,12 +98,11 @@ function fingerprint(segment: TranscriptSegment): string {
 }
 
 export class TranscriptMatcher {
-  readonly #terms: readonly CompiledTerm[];
+  readonly #terms: readonly TermState[];
   readonly #minimumWordConfidence: number;
   readonly #primarySpeaker: number | undefined;
   readonly #segmentIds = new Set<string>();
   readonly #segmentFingerprints = new Set<string>();
-  readonly #matchedMarkets = new Set<string>();
   #finalSegments: readonly TranscriptSegment[] = Object.freeze([]);
   #words: readonly IndexedWord[] = Object.freeze([]);
   #interim: TranscriptSegment | null = null;
@@ -98,13 +115,22 @@ export class TranscriptMatcher {
     ) {
       throw new RangeError("minimumWordConfidence must be between 0 and 1");
     }
-    this.#terms = terms.map(compile);
+    this.#terms = terms.map((spec) => ({ term: compile(spec), count: 0, scanFrom: 0 }));
     this.#minimumWordConfidence = options.minimumWordConfidence;
     this.#primarySpeaker = options.primarySpeaker;
   }
 
-  get matchedMarketIds(): ReadonlySet<string> {
-    return new Set(this.#matchedMarkets);
+  /** Markets whose counted mentions reached their threshold. */
+  get satisfiedMarketIds(): ReadonlySet<string> {
+    return new Set(
+      this.#terms
+        .filter((state) => state.count >= state.term.spec.mentionThreshold)
+        .map((state) => state.term.spec.marketId),
+    );
+  }
+
+  get mentionCounts(): ReadonlyMap<string, number> {
+    return new Map(this.#terms.map((state) => [state.term.spec.marketId, state.count]));
   }
 
   ingest(segment: TranscriptSegment): TranscriptUpdate {
@@ -121,7 +147,6 @@ export class TranscriptMatcher {
       return this.#update(false, []);
     }
 
-    const oldWordCount = this.#words.length;
     const newWords = segment.words.flatMap((word, wordIndex): readonly IndexedWord[] => {
       const tokens = normalize(word.text);
       return tokens.map((token) =>
@@ -139,44 +164,74 @@ export class TranscriptMatcher {
     this.#words = Object.freeze([...this.#words, ...newWords]);
     this.#interim = null;
 
-    const hits: MentionHit[] = [];
-    for (const term of this.#terms) {
-      if (this.#matchedMarkets.has(term.spec.marketId)) continue;
-      const hit = this.#findHit(term, oldWordCount);
-      if (hit === undefined) continue;
-      this.#matchedMarkets.add(term.spec.marketId);
-      hits.push(hit);
-    }
+    const hits = this.#terms.flatMap((state) => this.#countNewMentions(state));
     return this.#update(true, hits);
   }
 
-  #findHit(term: CompiledTerm, oldWordCount: number): MentionHit | undefined {
+  /**
+   * Counts every non-overlapping qualifying mention added by the newest words
+   * and returns the one that reached the market's threshold, if any. Counting
+   * stops once a market is satisfied: further mentions cannot change it.
+   */
+  #countNewMentions(state: TermState): readonly MentionHit[] {
+    const { term } = state;
+    if (state.count >= term.spec.mentionThreshold) return [];
+    let hit: MentionHit | undefined;
+    let start = state.scanFrom;
+    while (start < this.#words.length) {
+      const mention = this.#qualifyingMentionAt(term, start);
+      if (mention === undefined) {
+        start += 1;
+        continue;
+      }
+      state.count += 1;
+      start = mention.endIndex;
+      state.scanFrom = start;
+      if (state.count >= term.spec.mentionThreshold) {
+        hit = Object.freeze({ ...mention.hit, mentionCount: state.count });
+        return [hit];
+      }
+    }
+
+    // Earlier positions were checked against every accepted form with all of
+    // their words present; only the tail can still grow into a longer phrase.
+    state.scanFrom = Math.max(
+      state.scanFrom,
+      this.#words.length - term.longestAcceptedForm + 1,
+    );
+    return [];
+  }
+
+  #qualifyingMentionAt(
+    term: CompiledTerm,
+    start: number,
+  ): { readonly hit: Omit<MentionHit, "mentionCount">; readonly endIndex: number } | undefined {
     for (const form of term.accepted) {
-      const firstStart = Math.max(0, oldWordCount - form.length + 1);
-      for (let start = firstStart; start + form.length <= this.#words.length; start += 1) {
-        const end = start + form.length;
-        if (end <= oldWordCount || !matchesAt(this.#words, start, form)) continue;
-        if (overlapsExcluded(this.#words, start, end, term.excluded)) continue;
-        const span = this.#words.slice(start, end);
-        const first = span[0];
-        const last = span.at(-1);
-        if (first === undefined || last === undefined) continue;
-        if (
-          first.startMs < term.spec.windowStartMs ||
-          last.endMs > term.spec.windowEndMs
-        ) {
-          continue;
-        }
-        const minimumConfidence = Math.min(...span.map((word) => word.confidence));
-        if (minimumConfidence < this.#minimumWordConfidence) continue;
-        if (
-          term.spec.speakerScope === "primary" &&
-          (this.#primarySpeaker === undefined ||
-            span.some((word) => word.speaker !== this.#primarySpeaker))
-        ) {
-          continue;
-        }
-        return Object.freeze({
+      const end = start + form.length;
+      if (end > this.#words.length || !matchesAt(this.#words, start, form)) continue;
+      if (overlapsExcluded(this.#words, start, end, term.excluded)) continue;
+      const span = this.#words.slice(start, end);
+      const first = span[0];
+      const last = span.at(-1);
+      if (first === undefined || last === undefined) continue;
+      if (
+        first.startMs < term.spec.windowStartMs ||
+        last.endMs > term.spec.windowEndMs
+      ) {
+        continue;
+      }
+      const minimumConfidence = Math.min(...span.map((word) => word.confidence));
+      if (minimumConfidence < this.#minimumWordConfidence) continue;
+      if (
+        term.spec.speakerScope === "primary" &&
+        (this.#primarySpeaker === undefined ||
+          span.some((word) => word.speaker !== this.#primarySpeaker))
+      ) {
+        continue;
+      }
+      return Object.freeze({
+        endIndex: end,
+        hit: Object.freeze({
           marketId: term.spec.marketId,
           term: form.join(" "),
           transcript: Array.from(
@@ -191,8 +246,8 @@ export class TranscriptMatcher {
           sourceEndMs: last.endMs,
           minimumConfidence,
           segmentIds: Object.freeze(Array.from(new Set(span.map((word) => word.segmentId)))),
-        });
-      }
+        }),
+      });
     }
     return undefined;
   }
@@ -206,6 +261,7 @@ export class TranscriptMatcher {
       finalSegments: this.#finalSegments,
       interim: this.#interim,
       hits: Object.freeze([...hits]),
+      mentionCounts: this.mentionCounts,
     });
   }
 }

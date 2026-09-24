@@ -10,8 +10,8 @@ import {
 } from "../market/subscription.js";
 import type { BookState } from "../market/types.js";
 import {
+  LiveTranscript,
   TranscriptMatcher,
-  TranscriptWindow,
   YoutubeAudioSource,
   type AudioSource,
   type StreamingTranscriber,
@@ -33,7 +33,6 @@ export interface PanelRuntimeOptions {
   readonly logger: Logger;
   readonly minimumWordConfidence?: number;
   readonly primarySpeaker?: number;
-  readonly transcriptMaximumWords?: number;
 
   /** How long the panel tolerates an unresponsive market stream before abandoning it. */
   readonly marketSubscriptionTimeoutMs?: number;
@@ -156,7 +155,7 @@ export class PanelRuntime {
     signal: AbortSignal,
     startedAtMs: number,
   ): Promise<void> {
-    const transcript = new TranscriptWindow(this.options.transcriptMaximumWords ?? 1_000);
+    const transcript = new LiveTranscript();
     const forecastTasks = new Set<Promise<void>>();
     let revision = 0;
     let appliedRevision = 0;
@@ -171,11 +170,16 @@ export class PanelRuntime {
           },
         );
 
-    const runForecast = async (recentTranscript: string, transcriptCutoffMs: number, requestRevision: number): Promise<void> => {
-      if (signal.aborted || recentTranscript.length === 0) return;
-      const matchedMarketIds = matcher?.matchedMarketIds ?? new Set<string>();
+    // Custom terms are single-mention, so coverage is moot; event markets need
+    // transcription from the qualifying start before counts are trustworthy.
+    const mentionCountsComplete = session.eventProposal === null ||
+      startedAtMs <= session.eventProposal.expectedStartMs;
+
+    const runForecast = async (transcriptText: string, transcriptCutoffMs: number, requestRevision: number): Promise<void> => {
+      if (signal.aborted || transcriptText.length === 0) return;
+      const satisfiedMarketIds = matcher?.satisfiedMarketIds ?? new Set<string>();
       const activeMarkets = session.markets.filter(
-        (market) => !matchedMarketIds.has(market.marketId),
+        (market) => !satisfiedMarketIds.has(market.marketId),
       );
       if (activeMarkets.length === 0) return;
       const now = Date.now();
@@ -190,10 +194,12 @@ export class PanelRuntime {
           ? null
           : Math.max(0, session.expectedEndMs - now),
         transcriptCutoffMs,
-        recentTranscript,
+        transcript: transcriptText,
         earlierSummary: "",
         markets: activeMarkets,
-        matchedMarketIds,
+        satisfiedMarketIds,
+        mentionCounts: matcher?.mentionCounts ?? new Map<string, number>(),
+        mentionCountsComplete,
       });
       const result = await this.options.forecaster.forecast(snapshot, signal);
       if (result.status === "completed" && !signal.aborted && requestRevision > appliedRevision) {
@@ -306,6 +312,7 @@ function customMarkets(terms: readonly string[]): readonly ForecastMarket[] {
         acceptedForms: Object.freeze([term]),
         excludedForms: Object.freeze([]),
         speakerScope: "primary" as const,
+        mentionThreshold: 1,
       }),
     });
   }));

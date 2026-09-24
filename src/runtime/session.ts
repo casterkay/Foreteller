@@ -26,8 +26,8 @@ import {
   type StrategyDecision,
 } from "../strategy/index.js";
 import {
+  LiveTranscript,
   TranscriptMatcher,
-  TranscriptWindow,
   YoutubeAudioSource,
   type StreamingTranscriber,
   type TranscriptEvent,
@@ -58,7 +58,9 @@ export interface LiveSessionRuntimeOptions {
   readonly liveTrading: boolean;
   readonly sessionDataDirectory: string;
   readonly pollIntervalMs?: number;
-  readonly transcriptMaximumWords?: number;
+
+  /** Startup gap tolerated before counted mentions stop covering the broadcast. */
+  readonly mentionCountCoverageGraceMs: number;
   readonly rulesCheckMs?: number;
   readonly reconcileIntervalMs?: number;
 }
@@ -151,7 +153,7 @@ export class LiveSessionRuntime {
     const signal = controller.signal;
     const live = await this.waitForLive(binding, signal);
     if (signal.aborted) return;
-    if (!live) {
+    if (live === undefined) {
       active.status = "ended";
       this.options.store.recordSessionStatus(binding.sessionId, "ended", Date.now());
       return;
@@ -177,7 +179,19 @@ export class LiveSessionRuntime {
       },
     );
     const attempts = new Map<string, AttemptState>();
-    const transcript = new TranscriptWindow(this.options.transcriptMaximumWords ?? 1_000);
+    const transcript = new LiveTranscript();
+
+    // Mentions spoken before transcription began are unobservable, so count
+    // markets are only forecastable when it started with the broadcast.
+    const mentionCountsComplete = live.scheduledStartMs !== undefined &&
+      Date.now() <= live.scheduledStartMs + this.options.mentionCountCoverageGraceMs;
+    if (!mentionCountsComplete && binding.markets.some(hasMentionThreshold)) {
+      this.options.logger.warn("Count markets excluded from this session", {
+        sessionId: binding.sessionId,
+        reason: "transcription started after the broadcast",
+        broadcastStartMs: live.scheduledStartMs ?? null,
+      });
+    }
     const lastBookJournalAt = new Map<string, number>();
     let latestTiming: AudioTimingEvidence | undefined;
     let eventTail = Promise.resolve();
@@ -200,7 +214,7 @@ export class LiveSessionRuntime {
       });
     };
 
-    const runForecast = async (recentTranscript: string, transcriptCutoffMs: number, requestRevision: number): Promise<void> => {
+    const runForecast = async (transcriptText: string, transcriptCutoffMs: number, requestRevision: number): Promise<void> => {
       if (signal.aborted || latestTiming === undefined) return;
       const now = Date.now();
       let result;
@@ -215,10 +229,12 @@ export class LiveSessionRuntime {
             elapsedMs: Math.max(0, now - binding.expectedStartMs),
             estimatedRemainingMs: Math.max(0, binding.expectedEndMs - now),
             transcriptCutoffMs,
-            recentTranscript,
+            transcript: transcriptText,
             earlierSummary: "",
             markets: binding.markets,
-            matchedMarketIds: matcher.matchedMarketIds,
+            satisfiedMarketIds: matcher.satisfiedMarketIds,
+            mentionCounts: matcher.mentionCounts,
+            mentionCountsComplete,
           },
           signal,
         );
@@ -349,7 +365,15 @@ export class LiveSessionRuntime {
             if (!event.segment.isFinal || !update.addedFinal || latestTiming === undefined) return;
             if (!this.options.store.recordTranscript(binding.sessionId, event.segment)) return;
             for (const hit of update.hits) {
-              await this.handleSniper(binding, hit, books, attempts, timing, signal);
+              await this.handleSniper(
+                binding,
+                hit,
+                books,
+                attempts,
+                timing,
+                mentionCountsComplete,
+                signal,
+              );
             }
           });
         },
@@ -377,18 +401,22 @@ export class LiveSessionRuntime {
     }
   }
 
-  private async waitForLive(binding: SessionBinding, signal: AbortSignal): Promise<boolean> {
+  /** Resolves with the live video's metadata, or undefined when it never goes live. */
+  private async waitForLive(
+    binding: SessionBinding,
+    signal: AbortSignal,
+  ): Promise<YouTubeMetadata | undefined> {
     while (!signal.aborted) {
-      if (Date.now() > binding.expectedEndMs) return false;
+      if (Date.now() > binding.expectedEndMs) return undefined;
       const video = await this.options.videoProbe.inspect(binding.videoUrl);
       if (video.videoId !== binding.videoId || video.channelId !== binding.channelId) {
         throw new Error("confirmed video binding changed");
       }
-      if (video.liveStatus === "is_live") return true;
-      if (video.liveStatus === "was_live" || video.liveStatus === "post_live") return false;
+      if (video.liveStatus === "is_live") return video;
+      if (video.liveStatus === "was_live" || video.liveStatus === "post_live") return undefined;
       await abortableDelay(this.options.pollIntervalMs ?? 15_000, signal);
     }
-    return false;
+    return undefined;
   }
 
   private async handleSniper(
@@ -397,6 +425,7 @@ export class LiveSessionRuntime {
     books: ReadonlyMap<string, BookSnapshot>,
     attempts: Map<string, AttemptState>,
     timing: AudioTimingEvidence,
+    mentionCountsComplete: boolean,
     signal: AbortSignal,
   ): Promise<void> {
     const market = binding.markets.find((candidate) => candidate.marketId === mention.marketId);
@@ -411,6 +440,7 @@ export class LiveSessionRuntime {
       );
       const decisionInput: SniperDecisionInput = {
         mention,
+        mentionCountsComplete,
         market,
         book,
         nowMs: Date.now(),
@@ -463,7 +493,7 @@ export class LiveSessionRuntime {
       feeSchedule: market.feeExponent === undefined
         ? undefined
         : { rate: market.feeRate, exponent: market.feeExponent },
-      marketAlreadyMatched: matcher.matchedMarketIds.has(market.marketId),
+      marketAlreadySatisfied: matcher.satisfiedMarketIds.has(market.marketId),
       lastAttemptAtMs: state.lastAttemptAtMs,
       limits: this.options.limits,
     };
@@ -580,6 +610,10 @@ function attemptState(
   const state: AttemptState = { attempts: 0, lastAttemptAtMs: undefined };
   attempts.set(key, state);
   return state;
+}
+
+function hasMentionThreshold(market: MarketDefinition): boolean {
+  return market.term.mentionThreshold > 1;
 }
 
 function phase(binding: SessionBinding, nowMs: number): string {

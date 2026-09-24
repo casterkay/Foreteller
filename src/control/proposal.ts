@@ -14,7 +14,21 @@ export interface EventProposal {
 }
 
 const simpleTermPattern = /^[\p{L}\p{M}][\p{L}\p{M}'\u2019-]*(?:[ ][\p{L}\p{M}][\p{L}\p{M}'\u2019-]*)*$/u;
-const countMarketPattern = /\b(?:at least|at most|more than|less than|fewer than|exactly|between)\b|\b\d+\s*(?:times?|mentions?|occurrences?)\b|\b(?:times?|mentions?|occurrences?)\s*\d+\b/iu;
+const countMarketPattern = /\b(?:at least|at most|more than|less than|fewer than|exactly|between)\b|\b\d+\s*\+?\s*(?:times?|mentions?|occurrences?)\b|\b(?:times?|mentions?|occurrences?)\s*\d+\b/iu;
+
+/** An outcome label such as "Million / Billion / Trillion 10+ times". */
+const thresholdTitlePattern = /^(?<term>.+?)\s+(?<threshold>\d{1,4})\s*\+\s*times$/iu;
+
+/** Bounds YES-only sizing cannot express, whatever the outcome label claims. */
+const nonMonotoneCountPattern = /\b(?:at most|no more than|fewer than|less than|under|exactly|between)\b/iu;
+
+const maximumMentionThreshold = 100;
+
+interface ParsedTerm {
+  readonly label: string;
+  readonly acceptedForms: readonly string[];
+  readonly mentionThreshold: number;
+}
 
 export class PolymarketEventProposer {
   public constructor(
@@ -36,7 +50,7 @@ export class PolymarketEventProposer {
     const eventTitle = requireText(event.title, `Event ${resolvedEventId} title`);
     const terms = event.markets.flatMap((market) => termForMarket(market));
     if (terms.length === 0) {
-      throw new Error(`Event ${eventTitle} has no unambiguous single-mention markets`);
+      throw new Error(`Event ${eventTitle} has no unambiguous mention markets`);
     }
 
     const selected = await this.marketData.fetchSelectedEvent(resolvedEventId, terms);
@@ -72,11 +86,11 @@ function proposalFromSelected(selected: EventMarkets): EventProposal {
 }
 
 function termForMarket(market: Event["markets"][number]): readonly TermSpec[] {
-  const title = normalizedSimpleTerm(market.groupItemTitle);
+  const parsed = parseTermTitle(market.groupItemTitle);
   if (
     market.state.acceptingOrders !== true ||
-    title === undefined ||
-    isCountMarket(market.question)
+    parsed === undefined ||
+    !questionMatchesThreshold(market.question, parsed.mentionThreshold)
   ) {
     return [];
   }
@@ -90,19 +104,64 @@ function termForMarket(market: Event["markets"][number]): readonly TermSpec[] {
   return [
     Object.freeze({
       marketId: market.id,
-      label: title,
-      acceptedForms: Object.freeze([title]),
+      label: parsed.label,
+      acceptedForms: parsed.acceptedForms,
       excludedForms: Object.freeze([]),
       speakerScope: "primary",
       windowStartMs,
       windowEndMs,
+      mentionThreshold: parsed.mentionThreshold,
     }),
   ];
 }
 
-function normalizedSimpleTerm(value: string | null | undefined): string | undefined {
+/**
+ * Reads an outcome label as alternative accepted forms and, for a count market,
+ * the mentions its threshold requires. Anything else stays unproposed: a
+ * misread rule is worse than a missed market.
+ */
+function parseTermTitle(value: string | null | undefined): ParsedTerm | undefined {
   if (value === undefined || value === null) return undefined;
   const title = value.normalize("NFKC").trim().replace(/\s+/gu, " ");
+  if (title.length === 0 || title.length > 96) return undefined;
+
+  // Count markets read their threshold from the title; the slash then separates
+  // alternative spoken forms, any one of which qualifies.
+  const threshold = thresholdTitlePattern.exec(title);
+  if (threshold !== null) {
+    const mentionThreshold = Number(threshold.groups?.["threshold"] ?? Number.NaN);
+    if (
+      !Number.isInteger(mentionThreshold) ||
+      mentionThreshold < 1 ||
+      mentionThreshold > maximumMentionThreshold
+    ) {
+      return undefined;
+    }
+    const acceptedForms = (threshold.groups?.["term"] ?? "").split("/").map(normalizedSimpleTerm);
+    if (acceptedForms.length === 0 || acceptedForms.some((form) => form === undefined)) {
+      return undefined;
+    }
+    const forms = Object.freeze(acceptedForms as readonly string[]);
+    return Object.freeze({
+      label: forms.join(" / "),
+      acceptedForms: forms,
+      mentionThreshold,
+    });
+  }
+
+  // A plain mention market stays strictly single-term; slashes and conjunctions
+  // remain ambiguous without a count qualifier to disambiguate them.
+  const label = normalizedSimpleTerm(title);
+  if (label === undefined) return undefined;
+  return Object.freeze({
+    label,
+    acceptedForms: Object.freeze([label]),
+    mentionThreshold: 1,
+  });
+}
+
+function normalizedSimpleTerm(value: string): string | undefined {
+  const title = value.trim().replace(/\s+/gu, " ");
   if (
     title.length === 0 ||
     title.length > 64 ||
@@ -116,8 +175,22 @@ function normalizedSimpleTerm(value: string | null | undefined): string | undefi
   return title;
 }
 
-function isCountMarket(question: string | null | undefined): boolean {
-  return countMarketPattern.test(question ?? "");
+/**
+ * The outcome label alone must never decide how many mentions resolve a market:
+ * the question has to agree, and must not bound the count from above.
+ */
+function questionMatchesThreshold(
+  question: string | null | undefined,
+  mentionThreshold: number,
+): boolean {
+  const text = question ?? "";
+  if (mentionThreshold === 1) return !countMarketPattern.test(text);
+  if (nonMonotoneCountPattern.test(text)) return false;
+  const count = String(mentionThreshold);
+  return (
+    new RegExp(`\\b${count}\\s*\\+`, "u").test(text) ||
+    new RegExp(`\\b(?:at least\\s+)?${count}\\s+(?:or more\\s+)?(?:times|mentions|occurrences)\\b`, "iu").test(text)
+  );
 }
 
 function parseTimestamp(value: string | null | undefined): number | undefined {

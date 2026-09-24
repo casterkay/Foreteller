@@ -20,8 +20,10 @@ export type DecisionRejectionReason =
   | "attempt_limit"
   | "allowance_exhausted"
   | "forecast_stale"
-  | "market_already_matched"
+  | "market_already_satisfied"
   | "mention_market_mismatch"
+  | "mention_threshold_unmet"
+  | "mention_counts_incomplete"
   | "forecast_probability_invalid"
   | "ask_outside_forecast_range"
   | "no_price_with_required_edge"
@@ -57,6 +59,9 @@ interface SharedDecisionInput {
 
 export interface SniperDecisionInput extends SharedDecisionInput {
   readonly mention: MentionHit;
+
+  /** Whether mention counting covered the qualifying event from its start. */
+  readonly mentionCountsComplete: boolean;
   readonly attempts: number;
   readonly lastAttemptAtMs: number | undefined;
   readonly limits: Pick<
@@ -73,7 +78,7 @@ export interface SniperDecisionInput extends SharedDecisionInput {
 export interface ForecastDecisionInput extends SharedDecisionInput {
   readonly forecast: ForecastAnswer;
   readonly feeSchedule: FeeSchedule | undefined;
-  readonly marketAlreadyMatched: boolean;
+  readonly marketAlreadySatisfied: boolean;
   readonly lastAttemptAtMs: number | undefined;
   readonly limits: Pick<
     Limits,
@@ -93,6 +98,15 @@ export function decideSniperOrder(input: SniperDecisionInput): StrategyDecision 
   if (rejection !== undefined) return rejection;
   if (input.mention.marketId !== input.market.marketId) {
     return reject("sniper", input.market.marketId, "mention_market_mismatch");
+  }
+  if (input.mention.mentionCount < input.market.term.mentionThreshold) {
+    return reject("sniper", input.market.marketId, "mention_threshold_unmet");
+  }
+
+  // Without coverage from the qualifying start, the counted mentions are a
+  // floor, so this mention is not evidence that the threshold was just reached.
+  if (input.market.term.mentionThreshold > 1 && !input.mentionCountsComplete) {
+    return reject("sniper", input.market.marketId, "mention_counts_incomplete");
   }
   if (input.attempts >= input.limits.sniperMaximumAttempts) {
     return reject("sniper", input.market.marketId, "attempt_limit");
@@ -122,7 +136,7 @@ export function decideSniperOrder(input: SniperDecisionInput): StrategyDecision 
 export function decideForecastOrder(input: ForecastDecisionInput): StrategyDecision {
   const rejection = validateSharedInput(input, "forecast", input.limits.maximumSourceAgeMs);
   if (rejection !== undefined) return rejection;
-  if (input.marketAlreadyMatched) return reject("forecast", input.market.marketId, "market_already_matched");
+  if (input.marketAlreadySatisfied) return reject("forecast", input.market.marketId, "market_already_satisfied");
   if (!Number.isFinite(input.forecast.probability) || input.forecast.probability < 0 || input.forecast.probability > 1) {
     return reject("forecast", input.market.marketId, "forecast_probability_invalid");
   }
