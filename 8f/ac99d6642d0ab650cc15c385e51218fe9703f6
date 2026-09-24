@@ -1,0 +1,45 @@
+extension/content.js
+  h_0528fe13c98664 76,168-171,181-182,220,231,394,433,435
+  h_0528fe13c98664 16-18,24-27,29-31,35-46,56-58,63-64,66-69,72,109-110,117-119,132-135,138,179-180,183,207,230,232-235,302,304,306,309,313-331,389
+src/main.ts
+  s_7cee6b3e3698cf::t_3c3597afa7bb3e 140-141,215-216
+src/panel/types.ts
+  s_023fd6dc2b410a::t_cdd3e1a9508bf7 27
+src/panel/runtime.ts
+  h_0528fe13c98664 13,33-34,70-73,75-86,158-166,170-174,189-190,236-239
+src/panel/state.ts
+  h_0528fe13c98664 21,23,31,39,41,64-65,71,73-74,77,79,93-97,105,107,122,136,138-139
+test/panel/runtime.test.ts
+  h_0528fe13c98664 160-243,289-306,312-318
+test/panel/state.test.ts
+  h_0528fe13c98664 22,51,65-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8fac99d6642d0ab650cc15c385e51218fe9703f6",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  },
+  "sessions": {
+    "s_023fd6dc2b410a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d12c-535d-7b32-a5d7-7d30e47155f9",
+        "model": "unknown"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    },
+    "s_7cee6b3e3698cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ceba-51dc-7ea2-bfab-766191aeaae0",
+        "model": "unknown"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
