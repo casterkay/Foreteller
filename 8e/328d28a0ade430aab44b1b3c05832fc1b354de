@@ -1,0 +1,64 @@
+src/panel/state.ts
+  s_5522a79a231b76::t_479ba9acd9b688 14-22,26
+  s_5522a79a231b76::t_806f58c26394c7 108
+  s_5522a79a231b76::t_e0af4be5b8c990 126
+  s_5522a79a231b76::t_b744f0e238ce11 37,41
+src/panel/runtime.ts
+  s_5522a79a231b76::t_145f6d9c1b681b 36-38
+  s_5522a79a231b76::t_f00bb88ff43d93 83-87,90
+  s_5522a79a231b76::t_7c93cae5455774 266,270-272
+src/panel/types.ts
+  s_5522a79a231b76::t_baaf0525470aaf 24-27
+  s_5522a79a231b76::t_67a2217ae2d3ca 23,28
+test/panel/runtime.test.ts
+  s_5522a79a231b76::t_5198919bcbdee9 58
+  s_5522a79a231b76::t_47d4ac7044a7dc 206-250
+MVP_PLAN.md
+  s_5522a79a231b76::t_3011db93e06469 45-70
+  s_5522a79a231b76::t_da5ff3fe0ace94 22-23
+  s_5522a79a231b76::t_dfe4135b3a3e0d 5
+extension/content.js
+  s_5522a79a231b76::t_ba7c86149b67aa 330,335
+  s_5522a79a231b76::t_2db060fed53e01 158-161
+  s_5522a79a231b76::t_1dcac1144828a7 33-37
+  s_5522a79a231b76::t_3059fc7fb7fcc6 190-209
+test/market/subscription.test.ts
+  s_5522a79a231b76::t_fcd61ca270da0c 42,44,46,48-51,53,55-60,89-93,95-133
+  s_5522a79a231b76::t_2d45205aba7958 45,61,71
+  s_5522a79a231b76::t_9e0cfe86232a8b 7
+  s_5522a79a231b76::t_f8c095aa584232 43,47,52,54,62-70,72-88,94
+src/main.ts
+  s_5522a79a231b76::t_8611463207cfb9 148-158
+test/panel/state.test.ts
+  s_5522a79a231b76::t_be49c2c4ff27bb 56-73
+  s_5522a79a231b76::t_75eb192e088399 22-29,76-83,100-107
+README.md
+  s_5522a79a231b76::t_8c09cf6e888794 41-45
+src/market/subscription.ts
+  s_5522a79a231b76::t_3097d4da02d3cb 359
+  s_5522a79a231b76::t_f9b76867a920ae 80-84
+  s_5522a79a231b76::t_08e3f2b216f7ac 327-358,360-384
+  s_5522a79a231b76::t_e3d1deabf1287a 91-92,99
+  s_5522a79a231b76::t_bd0f3f9e983628 113-114
+  s_5522a79a231b76::t_3975f538bdc963 292
+  s_5522a79a231b76::t_01edacad698c2a 68-73,79
+  s_5522a79a231b76::t_a73e68b0400afb 175,179-187,192,197,201-202,208-217,220-223
+  s_5522a79a231b76::t_1046aab93a8f91 128-129,132-137,139,141-162
+  s_5522a79a231b76::t_3dcf4595665781 85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8e328d28a0ade430aab44b1b3c05832fc1b354de",
+  "prompts": {},
+  "sessions": {
+    "s_5522a79a231b76": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66c30f27-88fe-496d-93e5-47dc28d01c40",
+        "model": "claude-opus-5"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
