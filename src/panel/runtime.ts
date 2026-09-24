@@ -171,8 +171,9 @@ export class PanelRuntime {
         );
 
     // Custom terms are single-mention, so coverage is moot; event markets need
-    // transcription from the qualifying start before counts are trustworthy.
-    const mentionCountsComplete = session.eventProposal === null ||
+    // transcription from the qualifying start before counts are trustworthy. A
+    // source reconnect leaves a gap that drops counts back to a floor.
+    let mentionCountsComplete = session.eventProposal === null ||
       startedAtMs <= session.eventProposal.expectedStartMs;
 
     const runForecast = async (transcriptText: string, transcriptCutoffMs: number, requestRevision: number): Promise<void> => {
@@ -247,6 +248,9 @@ export class PanelRuntime {
           requestForecast(text, event.segment.sourceEndMs);
         },
         signal,
+        () => {
+          mentionCountsComplete = false;
+        },
       );
       if (!signal.aborted) throw new Error("The live transcription source ended");
     } finally {

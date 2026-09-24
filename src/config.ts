@@ -17,6 +17,8 @@ const environmentSchema = z.object({
   SESSION_DATA_DIR: z.string().default("./data/sessions"),
   PANEL_SERVER_PORT: z.coerce.number().int().min(1_024).max(65_535).default(4_318),
   TRANSCRIPT_MAXIMUM_WORDS: z.coerce.number().int().positive().max(10_000).default(1_000),
+  SOURCE_MAXIMUM_RECONNECTS: z.coerce.number().int().min(0).max(10).default(3),
+  SOURCE_RECONNECT_BASE_DELAY_MS: z.coerce.number().int().min(0).max(60_000).default(1_000),
   LIVE_TRADING: z.enum(["true", "false"]).default("false"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   DEEPGRAM_PRIMARY_SPEAKER: z.coerce.number().int().nonnegative().default(0),
@@ -74,6 +76,8 @@ export interface AppConfig {
   readonly logLevel: "debug" | "info" | "warn" | "error";
   readonly deepgramPrimarySpeaker: number;
   readonly transcriptMaximumWords: number;
+  readonly sourceMaximumReconnects: number;
+  readonly sourceReconnectBaseDelayMs: number;
   readonly limits: Limits;
 }
 
@@ -115,6 +119,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     logLevel: parsed.LOG_LEVEL,
     deepgramPrimarySpeaker: parsed.DEEPGRAM_PRIMARY_SPEAKER,
     transcriptMaximumWords: parsed.TRANSCRIPT_MAXIMUM_WORDS,
+    sourceMaximumReconnects: parsed.SOURCE_MAXIMUM_RECONNECTS,
+    sourceReconnectBaseDelayMs: parsed.SOURCE_RECONNECT_BASE_DELAY_MS,
     limits: defaultLimits,
   });
 }

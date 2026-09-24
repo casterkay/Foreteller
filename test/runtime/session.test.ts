@@ -147,6 +147,26 @@ describe("LiveSessionRuntime", () => {
     await harness.runtime.halt(harness.binding);
     harness.store.close();
   });
+
+  it("flips count-market coverage off after an audio source gap", async () => {
+    const forecaster = new CapturingForecaster();
+    const harness = createHarness({ forecaster, coverageFromStart: true });
+    await harness.runtime.start(harness.binding);
+    await harness.transcriber.ready;
+
+    harness.transcriber.emit(transcriptEvent(harness.binding, false, "context"));
+    await flushTasks();
+    expect(forecaster.snapshots.at(-1)?.mentionCountsComplete).toBe(true);
+
+    harness.transcriber.disconnect();
+
+    harness.transcriber.emit(transcriptEvent(harness.binding, false, "context again"));
+    await flushTasks();
+    expect(forecaster.snapshots.at(-1)?.mentionCountsComplete).toBe(false);
+
+    await harness.runtime.halt(harness.binding);
+    harness.store.close();
+  });
 });
 
 function createHarness(options: {
@@ -154,6 +174,7 @@ function createHarness(options: {
   readonly reconcileIntervalMs?: number;
   readonly forecaster?: SessionForecaster;
   readonly liveStatus?: "is_live" | "is_upcoming";
+  readonly coverageFromStart?: boolean;
 } = {}) {
   const now = Date.now();
   const binding = sessionBinding(now, options.expectedEndMs ?? now + 60_000);
@@ -185,6 +206,7 @@ function createHarness(options: {
         title: "Live speech",
         channelId: binding.channelId,
         liveStatus: options.liveStatus ?? "is_live",
+        ...(options.coverageFromStart === true ? { scheduledStartMs: Date.now() } : {}),
       }),
     },
     verifier: { verify: async () => true },
@@ -269,6 +291,7 @@ function transcriptEvent(
 
 class ControlledTranscriber implements StreamingTranscriber {
   private onTranscript: ((event: TranscriptEvent) => void) | undefined;
+  private onDiscontinuity: (() => void) | undefined;
   private markReady: (() => void) | undefined;
   private finishRun: (() => void) | undefined;
   public readonly ready = new Promise<void>((resolve) => {
@@ -279,14 +302,20 @@ class ControlledTranscriber implements StreamingTranscriber {
     _source: AudioSource,
     onTranscript: (event: TranscriptEvent) => void,
     signal: AbortSignal,
+    onDiscontinuity?: () => void,
   ): Promise<void> {
     this.onTranscript = onTranscript;
+    this.onDiscontinuity = onDiscontinuity;
     this.markReady?.();
     return new Promise((resolve) => {
       this.finishRun = resolve;
       if (signal.aborted) resolve();
       else signal.addEventListener("abort", () => resolve(), { once: true });
     });
+  }
+
+  public disconnect(): void {
+    this.onDiscontinuity?.();
   }
 
   public emit(event: TranscriptEvent): void {
@@ -360,6 +389,18 @@ class SkippedForecaster implements SessionForecaster {
     _snapshot: ForecastSnapshot,
     _signal: AbortSignal,
   ): Promise<ForecastBatchResult> {
+    return Promise.resolve({ status: "skipped", reason: "no_forecastable_markets" });
+  }
+}
+
+class CapturingForecaster implements SessionForecaster {
+  public readonly snapshots: ForecastSnapshot[] = [];
+
+  public forecast(
+    snapshot: ForecastSnapshot,
+    _signal: AbortSignal,
+  ): Promise<ForecastBatchResult> {
+    this.snapshots.push(snapshot);
     return Promise.resolve({ status: "skipped", reason: "no_forecastable_markets" });
   }
 }

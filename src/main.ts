@@ -101,6 +101,8 @@ async function serve(
     videoProbe,
     transcriber: new DeepgramStreamingTranscriber({ apiKey: config.deepgramApiKey }),
     mentionCountCoverageGraceMs: 15_000,
+    sourceMaximumReconnects: config.sourceMaximumReconnects,
+    sourceReconnectBaseDelayMs: config.sourceReconnectBaseDelayMs,
     forecaster: new JevForecaster({
       apiKey: config.typeSafeApiKey,
       timeoutMs: 15_000,

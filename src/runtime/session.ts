@@ -61,6 +61,8 @@ export interface LiveSessionRuntimeOptions {
 
   /** Startup gap tolerated before counted mentions stop covering the broadcast. */
   readonly mentionCountCoverageGraceMs: number;
+  readonly sourceMaximumReconnects?: number;
+  readonly sourceReconnectBaseDelayMs?: number;
   readonly rulesCheckMs?: number;
   readonly reconcileIntervalMs?: number;
 }
@@ -182,8 +184,10 @@ export class LiveSessionRuntime {
     const transcript = new LiveTranscript();
 
     // Mentions spoken before transcription began are unobservable, so count
-    // markets are only forecastable when it started with the broadcast.
-    const mentionCountsComplete = live.scheduledStartMs !== undefined &&
+    // markets are only forecastable when it started with the broadcast. A
+    // source reconnect later leaves a gap, which drops the counts back to a
+    // floor and flips this off.
+    let mentionCountsComplete = live.scheduledStartMs !== undefined &&
       Date.now() <= live.scheduledStartMs + this.options.mentionCountCoverageGraceMs;
     if (!mentionCountsComplete && binding.markets.some(hasMentionThreshold)) {
       this.options.logger.warn("Count markets excluded from this session", {
@@ -346,6 +350,12 @@ export class LiveSessionRuntime {
           binding.sessionId,
           `audio-${String(Date.now())}.flac`,
         ),
+        ...(this.options.sourceMaximumReconnects === undefined
+          ? {}
+          : { maximumReconnects: this.options.sourceMaximumReconnects }),
+        ...(this.options.sourceReconnectBaseDelayMs === undefined
+          ? {}
+          : { reconnectBaseDelayMs: this.options.sourceReconnectBaseDelayMs }),
       });
       await this.options.transcriber.run(
         source,
@@ -378,6 +388,14 @@ export class LiveSessionRuntime {
           });
         },
         signal,
+        () => {
+          if (!mentionCountsComplete) return;
+          mentionCountsComplete = false;
+          this.options.logger.warn("Count markets excluded after transcript gap", {
+            sessionId: binding.sessionId,
+            reason: "audio source reconnected with a gap",
+          });
+        },
       );
       await eventTail;
       if (!signal.aborted) {

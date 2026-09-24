@@ -16,6 +16,7 @@ export interface StreamingTranscriber {
     source: AudioSource,
     onTranscript: (event: TranscriptEvent) => void,
     signal: AbortSignal,
+    onDiscontinuity?: () => void,
   ): Promise<void>;
 }
 
@@ -264,6 +265,7 @@ export class DeepgramStreamingTranscriber implements StreamingTranscriber {
     source: AudioSource,
     onTranscript: (event: TranscriptEvent) => void,
     signal: AbortSignal,
+    onDiscontinuity?: () => void,
   ): Promise<void> {
     signal.throwIfAborted();
     const connectionController = new AbortController();
@@ -313,7 +315,7 @@ export class DeepgramStreamingTranscriber implements StreamingTranscriber {
           sourceTimeOriginMs = chunk.sourceTimestampMs;
         }
         connection.sendMedia(chunk.data);
-      }, combinedSignal);
+      }, combinedSignal, onDiscontinuity);
       if (connectionError !== undefined) throw connectionError;
       connection.sendFinalize({ type: "Finalize" });
       connection.sendCloseStream({ type: "CloseStream" });
