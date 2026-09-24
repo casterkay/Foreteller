@@ -1,3 +1,5 @@
 export * from "./audio.js";
 export * from "./deepgram.js";
 export * from "./matcher.js";
+
+export * from "./window.js";

@@ -110,7 +110,7 @@ limits are shared. Daily spend uses UTC and persists across restarts.
 | Shared event / daily notional limits | $120 / $250 |
 | Maximum observed audio age | 45 seconds |
 | Maximum forecast age, from input snapshot | 20 seconds |
-| Minimum interval between Jev calls | 5 seconds after completion |
+| Transcript context limit | Newest 1,000 words; configurable |
 
 The sniper is fallible: finalized ASR and confidence scores do not guarantee a
 qualifying mention or YES resolution. At 0.99, one losing trade erases roughly
@@ -194,8 +194,8 @@ reason. A halt prevents further submissions while existing orders still reconcil
 
 - [ ] Send one price-blind Noul batch for unmatched markets, using event rules, speaker,
       recent transcript, and event stage. Record request, answer, model version, and latency.
-- [ ] Allow one request in flight. Trigger on new transcript or meaningful book changes,
-      with a 30-second fallback call and the configured minimum interval.
+- [x] Trigger one overlapping batched request per distinct transcript revision;
+      no book-change triggers, fallback timer, or minimum interval.
 - [ ] Reject malformed, timed-out, or stale forecasts; recheck mention state and the live
       book before execution. Jev failure disables B while A can continue if its inputs are healthy.
 - [ ] Compute expected execution cost for the full $5 from available depth and per-fill
@@ -233,3 +233,19 @@ profitability. Review results across subsequent events before tuning or raising 
 
 Keep the first release focused on one event, correct evidence, bounded execution,
 and an understandable result.
+
+## Transcript-driven inference and extension delivery
+
+Each distinct transcript revision, including interim ASR hypotheses and finalized
+segments, triggers one batched Jev request for unresolved terms. Finalized speech
+is retained once; the current interim hypothesis replaces the previous hypothesis.
+Retain only the newest `TRANSCRIPT_MAXIMUM_WORDS` words (default 1,000), truncating
+from the left. Do not trigger inference on book changes or periodic timers.
+There is no inference cooldown or in-flight coalescing. Bound each call by its
+request timeout and cancel it when the session ends. Completed responses carry
+revision ordering: an older response cannot overwrite a newer forecast. Only
+confirmed transcripts can establish qualifying mentions.
+
+The extension receives state changes immediately over a persistent connection,
+reconciles current state after reconnecting, and retains market DOM nodes for
+smooth marker transitions. Respect reduced-motion preferences.

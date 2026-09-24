@@ -56,14 +56,11 @@ export interface JevForecasterOptions {
   readonly model?: string;
   readonly timeoutMs: number;
   readonly maximumForecastAgeMs: number;
-  readonly minimumIntervalMs: number;
   readonly clock?: Clock;
   readonly transport?: JevTransport;
 }
 
 export type ForecastSkipReason =
-  | "in_flight"
-  | "minimum_interval"
   | "no_unmatched_markets"
   | "event_ended"
   | "stale_snapshot";
@@ -284,24 +281,17 @@ export class JevForecaster {
   readonly #model: string;
   readonly #timeoutMs: number;
   readonly #maximumForecastAgeMs: number;
-  readonly #minimumIntervalMs: number;
   readonly #clock: Clock;
   readonly #transport: JevTransport;
-  #inFlight = false;
-  #lastCompletedAtMs: number | undefined;
 
   constructor(options: JevForecasterOptions) {
     if (options.timeoutMs <= 0) throw new RangeError("timeoutMs must be positive");
     if (options.maximumForecastAgeMs < 0) {
       throw new RangeError("maximumForecastAgeMs cannot be negative");
     }
-    if (options.minimumIntervalMs < 0) {
-      throw new RangeError("minimumIntervalMs cannot be negative");
-    }
     this.#model = options.model ?? "jev-latest";
     this.#timeoutMs = options.timeoutMs;
     this.#maximumForecastAgeMs = options.maximumForecastAgeMs;
-    this.#minimumIntervalMs = options.minimumIntervalMs;
     this.#clock = options.clock ?? systemClock;
     this.#transport = options.transport ?? new TypeSafeJevTransport(options.apiKey);
   }
@@ -312,15 +302,6 @@ export class JevForecaster {
   ): Promise<ForecastBatchResult> {
     signal.throwIfAborted();
     const now = this.#clock.now();
-    if (this.#inFlight) {
-      return Object.freeze({ status: "skipped", reason: "in_flight" });
-    }
-    if (
-      this.#lastCompletedAtMs !== undefined &&
-      now - this.#lastCompletedAtMs < this.#minimumIntervalMs
-    ) {
-      return Object.freeze({ status: "skipped", reason: "minimum_interval" });
-    }
     if (now - snapshot.snapshotAtMs > this.#maximumForecastAgeMs) {
       return Object.freeze({ status: "skipped", reason: "stale_snapshot" });
     }
@@ -333,46 +314,40 @@ export class JevForecaster {
       return Object.freeze({ status: "skipped", reason: "no_unmatched_markets" });
     }
 
-    this.#inFlight = true;
     const requestedAtMs = this.#clock.now();
-    try {
-      const raw = await requestWithTimeout(
-        this.#transport,
-        request,
-        signal,
-        this.#timeoutMs,
-      );
-      const response = validateAnswers(raw, questionMarketIds);
-      const completedAtMs = this.#clock.now();
-      if (completedAtMs - snapshot.snapshotAtMs > this.#maximumForecastAgeMs) {
-        return Object.freeze({
-          status: "discarded",
-          reason: "stale_response",
-          requestedAtMs,
-          completedAtMs,
-        });
-      }
-      const latencyMs = Math.max(0, completedAtMs - requestedAtMs);
-      const answers = [...response.probabilities].map(([marketId, probability]) =>
-        Object.freeze({
-          marketId,
-          probability,
-          model: response.model,
-          snapshotAtMs: snapshot.snapshotAtMs,
-          latencyMs,
-        }),
-      );
+    const raw = await requestWithTimeout(
+      this.#transport,
+      request,
+      signal,
+      this.#timeoutMs,
+    );
+    const response = validateAnswers(raw, questionMarketIds);
+    const completedAtMs = this.#clock.now();
+    if (completedAtMs - snapshot.snapshotAtMs > this.#maximumForecastAgeMs) {
       return Object.freeze({
-        status: "completed",
+        status: "discarded",
+        reason: "stale_response",
         requestedAtMs,
         completedAtMs,
-        model: response.model,
-        request,
-        answers: Object.freeze(answers),
       });
-    } finally {
-      this.#inFlight = false;
-      this.#lastCompletedAtMs = this.#clock.now();
     }
+    const latencyMs = Math.max(0, completedAtMs - requestedAtMs);
+    const answers = [...response.probabilities].map(([marketId, probability]) =>
+      Object.freeze({
+        marketId,
+        probability,
+        model: response.model,
+        snapshotAtMs: snapshot.snapshotAtMs,
+        latencyMs,
+      }),
+    );
+    return Object.freeze({
+      status: "completed",
+      requestedAtMs,
+      completedAtMs,
+      model: response.model,
+      request,
+      answers: Object.freeze(answers),
+    });
   }
 }

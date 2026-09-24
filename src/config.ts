@@ -16,6 +16,7 @@ const environmentSchema = z.object({
   DATABASE_PATH: z.string().default("./data/foreteller.sqlite"),
   SESSION_DATA_DIR: z.string().default("./data/sessions"),
   PANEL_SERVER_PORT: z.coerce.number().int().min(1_024).max(65_535).default(4_318),
+  TRANSCRIPT_MAXIMUM_WORDS: z.coerce.number().int().positive().max(10_000).default(1_000),
   LIVE_TRADING: z.enum(["true", "false"]).default("false"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   DEEPGRAM_PRIMARY_SPEAKER: z.coerce.number().int().nonnegative().default(0),
@@ -38,7 +39,6 @@ export interface Limits {
   readonly dailyNotionalLimit: number;
   readonly maximumSourceAgeMs: number;
   readonly maximumForecastAgeMs: number;
-  readonly minimumForecastIntervalMs: number;
 }
 
 export const defaultLimits: Limits = Object.freeze({
@@ -58,7 +58,6 @@ export const defaultLimits: Limits = Object.freeze({
   dailyNotionalLimit: 250,
   maximumSourceAgeMs: 45_000,
   maximumForecastAgeMs: 20_000,
-  minimumForecastIntervalMs: 5_000,
 });
 
 export interface AppConfig {
@@ -74,6 +73,7 @@ export interface AppConfig {
   readonly panelServerPort: number;
   readonly logLevel: "debug" | "info" | "warn" | "error";
   readonly deepgramPrimarySpeaker: number;
+  readonly transcriptMaximumWords: number;
   readonly limits: Limits;
 }
 
@@ -114,6 +114,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     panelServerPort: parsed.PANEL_SERVER_PORT,
     logLevel: parsed.LOG_LEVEL,
     deepgramPrimarySpeaker: parsed.DEEPGRAM_PRIMARY_SPEAKER,
+    transcriptMaximumWords: parsed.TRANSCRIPT_MAXIMUM_WORDS,
     limits: defaultLimits,
   });
 }

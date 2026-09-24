@@ -34,7 +34,6 @@ describe("PanelRuntime", () => {
       },
       subscriberClient: unusedSubscriptionClient,
       logger: silentLogger,
-      forecastFallbackMs: 100_000,
       createAudioSource: () => unusedAudioSource,
     });
 
@@ -59,6 +58,106 @@ describe("PanelRuntime", () => {
     expect(state.snapshot().markets.map((market) => market.jevProbability)).toEqual([0.7, 0.7]);
 
     await runtime.stop();
+  });
+
+  it("sends interim revisions during in-flight calls and never applies an older result over a newer one", async () => {
+    const state = new PanelState();
+    const transcriber = new ControlledTranscriber();
+    const pending: Array<{ snapshot: ForecastSnapshot; resolve: (result: ForecastBatchResult) => void }> = [];
+    const runtime = new PanelRuntime({
+      state, transcriber,
+      forecaster: { forecast: (snapshot) => new Promise((resolve) => pending.push({ snapshot, resolve })) },
+      proposer: { propose: () => Promise.reject(new Error("not used")) },
+      videoProbe: { inspect: async () => ({ videoId: "video-1", title: "Speech", channelId: "channel-1", liveStatus: "is_live" }) },
+      subscriberClient: unusedSubscriptionClient,
+      logger: silentLogger,
+      transcriptMaximumWords: 3,
+      createAudioSource: () => unusedAudioSource,
+    });
+    await runtime.configure({ youtubeUrl: "https://www.youtube.com/watch?v=video-1", eventUrl: "",
+      customTitle: "Speech", customTerms: ["alpha"], speaker: "Ada" });
+    const first = transcript("one two", 1_000);
+    const second = transcript("one two three four", 2_000);
+    transcriber.emit({ ...first, segment: { ...first.segment, isFinal: false } });
+    transcriber.emit({ ...second, segment: { ...second.segment, isFinal: false } });
+    expect(pending.map((request) => request.snapshot.recentTranscript)).toEqual(["one two", "two three four"]);
+    const observed: Array<number | null | undefined> = [];
+    const unsubscribe = state.subscribe((snapshot) => observed.push(snapshot.markets[0]?.jevProbability));
+    const newer = pending[1];
+    const older = pending[0];
+    if (newer === undefined || older === undefined) throw new Error("Missing requests");
+    const result = await new RecordingForecaster().forecast(newer.snapshot, new AbortController().signal);
+    newer.resolve(result);
+    await vi.waitFor(() => expect(state.snapshot().markets[0]?.jevProbability).toBe(0.7));
+    if (result.status !== "completed") throw new Error("Expected completion");
+    older.resolve({ ...result, answers: result.answers.map((answer) => ({ ...answer, probability: 0.1 })) });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(state.snapshot().markets[0]?.jevProbability).toBe(0.7);
+    await runtime.stop();
+    unsubscribe();
+    expect(observed).not.toContain(0.1);
+  });
+
+  it.each(["older failure", "newer failure"] as const)("keeps error status revision-ordered with an %s", async (scenario) => {
+    const state = new PanelState();
+    const transcriber = new ControlledTranscriber();
+    const pending: Array<{ snapshot: ForecastSnapshot; resolve: (result: ForecastBatchResult) => void; reject: (error: Error) => void }> = [];
+    const runtime = new PanelRuntime({
+      state, transcriber,
+      forecaster: { forecast: (snapshot) => new Promise((resolve, reject) => pending.push({ snapshot, resolve, reject })) },
+      proposer: { propose: () => Promise.reject(new Error("not used")) },
+      videoProbe: { inspect: async () => ({ videoId: "video-1", title: "Speech", channelId: "channel-1", liveStatus: "is_live" }) },
+      subscriberClient: unusedSubscriptionClient, logger: silentLogger,
+      createAudioSource: () => unusedAudioSource,
+    });
+    await runtime.configure({ youtubeUrl: "https://www.youtube.com/watch?v=video-1", eventUrl: "",
+      customTitle: "Speech", customTerms: ["alpha"], speaker: "Ada" });
+    transcriber.emit(transcript("one", 1_000));
+    transcriber.emit(transcript("two", 2_000));
+    const older = pending[0];
+    const newer = pending[1];
+    if (older === undefined || newer === undefined) throw new Error("Missing requests");
+    if (scenario === "older failure") {
+      newer.resolve(await new RecordingForecaster().forecast(newer.snapshot, new AbortController().signal));
+      await vi.waitFor(() => expect(state.snapshot().markets[0]?.jevProbability).toBe(0.7));
+      older.reject(new Error("old timeout"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(state.snapshot().error).toBeNull();
+    } else {
+      newer.reject(new Error("latest timeout"));
+      await vi.waitFor(() => expect(state.snapshot().error).toContain("latest timeout"));
+      older.resolve(await new RecordingForecaster().forecast(older.snapshot, new AbortController().signal));
+      await vi.waitFor(() => expect(state.snapshot().markets[0]?.jevProbability).toBe(0.7));
+      expect(state.snapshot().error).toContain("latest timeout");
+    }
+    await runtime.stop();
+  });
+
+  it("does not infer from price changes or elapsed time without transcript revisions", async () => {
+    vi.useFakeTimers();
+    const state = new PanelState();
+    const transcriber = new ControlledTranscriber();
+    const forecaster = new RecordingForecaster();
+    const now = Date.now();
+    const runtime = new PanelRuntime({
+      state, transcriber, forecaster,
+      proposer: { propose: async () => ({ eventId: "event-1", eventTitle: "Speech",
+        expectedStartMs: now, expectedEndMs: now + 300_000, rulesHash: "rules", markets: [eventMarket(now + 300_000)] }) },
+      videoProbe: { inspect: async () => ({ videoId: "video-1", title: "Speech", channelId: "channel-1", liveStatus: "is_live" }) },
+      subscriberClient: new PassiveSubscriptionClient(), logger: silentLogger,
+      createAudioSource: () => unusedAudioSource,
+    });
+    try {
+      await runtime.configure({ youtubeUrl: "https://www.youtube.com/watch?v=video-1", eventUrl: "https://polymarket.com/event/speech",
+        customTitle: "", customTerms: [], speaker: "Ada" });
+      transcriber.emit(transcript("opening statement", now + 100));
+      await vi.advanceTimersByTimeAsync(65_000);
+      expect(state.snapshot().markets[0]?.polymarketYesPrice).toBe(0.5);
+      expect(forecaster.snapshots).toHaveLength(1);
+    } finally {
+      await runtime.stop();
+      vi.useRealTimers();
+    }
   });
 
   it("does not replace the active session after configuration is cancelled", async () => {
@@ -87,7 +186,6 @@ describe("PanelRuntime", () => {
       },
       subscriberClient: unusedSubscriptionClient,
       logger: silentLogger,
-      forecastFallbackMs: 100_000,
       createAudioSource: () => unusedAudioSource,
     });
     const configuration = {
@@ -142,7 +240,6 @@ describe("PanelRuntime", () => {
       },
       subscriberClient: subscriptionClient,
       logger: silentLogger,
-      forecastFallbackMs: 100_000,
       createAudioSource: () => unusedAudioSource,
     });
 
@@ -185,7 +282,6 @@ describe("PanelRuntime", () => {
       }) },
       subscriberClient: new PassiveSubscriptionClient(),
       logger: silentLogger,
-      forecastFallbackMs: 100_000,
       createAudioSource: () => unusedAudioSource,
     });
     await runtime.configure({
@@ -231,7 +327,6 @@ describe("PanelRuntime", () => {
         subscribe: () => new Promise<MarketSubscriptionHandle>(() => undefined),
       },
       logger: silentLogger,
-      forecastFallbackMs: 100_000,
       marketSubscriptionTimeoutMs: 20,
       createAudioSource: () => unusedAudioSource,
     });
@@ -264,7 +359,6 @@ describe("PanelRuntime", () => {
       }) },
       subscriberClient: unusedSubscriptionClient,
       logger: silentLogger,
-      forecastFallbackMs: 100_000,
       createAudioSource: () => unusedAudioSource,
     });
     const configuration = {

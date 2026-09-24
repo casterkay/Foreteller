@@ -363,3 +363,19 @@ The research MVP is complete when it can:
 7. fail closed for trading while keeping discovery and recording failures
    explicit and recoverable.
 
+
+## Transcript-driven inference and extension delivery
+
+Each distinct transcript revision, including interim ASR hypotheses and finalized
+segments, triggers one batched Jev request for unresolved terms. Finalized speech
+is retained once; the current interim hypothesis replaces the previous hypothesis.
+Retain only the newest `TRANSCRIPT_MAXIMUM_WORDS` words (default 1,000), truncating
+from the left. Do not trigger inference on book changes or periodic timers.
+There is no inference cooldown or in-flight coalescing. Bound each call by its
+request timeout and cancel it when the session ends. Completed responses carry
+revision ordering: an older response cannot overwrite a newer forecast. Only
+confirmed transcripts can establish qualifying mentions.
+
+The extension receives state changes immediately over a persistent connection,
+reconciles current state after reconnecting, and retains market DOM nodes for
+smooth marker transitions. Respect reduced-motion preferences.
