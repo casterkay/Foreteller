@@ -1,0 +1,114 @@
+.env.example
+  s_7cee6b3e3698cf::t_ee542bb1c5adee 17
+package.json
+  s_7cee6b3e3698cf::t_92fbf6962b76c0 14
+  s_7cee6b3e3698cf::t_0fa0654eb86eaf 41
+src/config.ts
+  s_7cee6b3e3698cf::t_8bb41c5c6133ef 18,73,114
+  s_8725b305a478f7::t_567e7aa2df192a 19,76,117
+src/control/proposal.ts
+  s_7cee6b3e3698cf::t_2490dfc3567a2f 27-31,35-36,42,45-51
+src/forecast/jev.ts
+  s_7cee6b3e3698cf::t_984a9ff55b3b55 10-22,31,35,219-226,308
+  s_8725b305a478f7::t_ae85fdfbfa8680 318-326,328-329,334-351
+src/main.ts
+  s_7cee6b3e3698cf::t_a2ff57f8933c93 14,47-51,53,74,167,176-214,216-219,220-222,225-233
+  s_7cee6b3e3698cf::t_3c3597afa7bb3e 140-141,223-224
+  s_8725b305a478f7::t_3e5798cd561ad2 103,215
+src/market/polymarket.ts
+  s_7cee6b3e3698cf::t_3b1b48fb87c30a 16,25
+src/panel/index.ts
+  s_7cee6b3e3698cf::t_4dd4ab8b3a7226 1-4
+src/panel/state.ts
+  s_7cee6b3e3698cf::t_fa1036c56afdd3 1-13,23,41-42,44-47,49,51-53,55-57,59-62,64,66-76,78-81,83-86,88-90,93-94,96-98,100,103-104,106,108-109,112-116,129-133,135-138,140,142,144-152,154-157,159-171,173,176-177
+  s_7cee6b3e3698cf::t_02826017424d15 120-121,129-130
+  h_0528fe13c98664 48,50,63,65,91-92,99,101-102,105,107,125-127,129-130,139,141,158,172,174-175
+  s_8725b305a478f7::t_abbe91cf744c3c 24-40,77,82,87,95,110-111,117,122,128,143
+src/panel/types.ts
+  s_7cee6b3e3698cf::t_dfb74037b6f588 1-8,10-22,29-32,34-36
+  s_7cee6b3e3698cf::t_ace232b43368ec 9
+  s_023fd6dc2b410a::t_cdd3e1a9508bf7 33
+pnpm-lock.yaml
+  s_7cee6b3e3698cf::t_90e2c025811dcc 28,486-488,529-532,696-698,1144-1148,1197,1202,1207-1211,1295,1298-1300,1368-1370
+extension/README.md
+  s_7cee6b3e3698cf::t_674cb1ee30bc0e 10
+  s_8725b305a478f7::t_9458a7998e9d2f 11-28
+extension/background.js
+  s_7cee6b3e3698cf::t_0609b1926fa8c0 15-19
+  s_8725b305a478f7::t_81d2f63e010f09 41-89
+extension/content.js
+  s_7cee6b3e3698cf::t_1d52f23a623d2c 4,14-15,27,43,53-56,77,101,163,258-259,414,513
+  h_0528fe13c98664 16-17,23-26,28,32,38-40,50-52,57,59-61,64,68,104-105,112-114,127-130,184-187,256,269,380-381,383-386,388-397,463,503,505
+  s_8725b305a478f7::t_63c7a7b8b629c6 12,58,86,90,100,102,121,123,133,136-152,193-205,207-212,215,297,301-336,365-379,430-431,449,451-453,458,468,476-477,482,497-498
+extension/manifest.json
+  s_7cee6b3e3698cf::t_9e16eb2b37418b 7
+src/panel/runtime.ts
+  s_7cee6b3e3698cf::t_3233939c5d130a 1,40,56,65-68,70-72,93-99,105-106,108,220,277,337-351
+  h_0528fe13c98664 13,34-35,74-77,79-83,89-90,163-171,175-179,194-195,229-232
+  s_8725b305a478f7::t_bf3154fc3568aa 14,36,159-162,173,192,198-199,204-205,207,210-211,226-228,234,241
+src/panel/server.ts
+  s_7cee6b3e3698cf::t_9d6426a6f91d37 11,39,49,53,59,115,121-128,134-137,154-175,186-192,197,203-212
+  s_8725b305a478f7::t_8d997e606aea35 4,50-52,63-92,116-120
+test/panel/runtime.test.ts
+  s_7cee6b3e3698cf::t_35fbe43550439c 62,101-126,127-180,181-195,416-471
+  h_0528fe13c98664 196-222,223-239,284-299,300-321,367-384,390-396
+  s_8725b305a478f7::t_8a721fb1a7d0f2 63-100
+test/panel/server.test.ts
+  s_7cee6b3e3698cf::t_d8a4cdbd6cea31 4,100-167
+  s_8725b305a478f7::t_6070705fccf34c 2,21-45
+test/panel/state.test.ts
+  h_0528fe13c98664 97-99,108-120
+MVP_PLAN.md
+  s_8725b305a478f7::t_97cb03a554111b 113,197-198,236-251
+jev-live-mention-market-strategy.md
+  s_8725b305a478f7::t_29eb28e1dff23f 366-381
+src/runtime/session.ts
+  s_8725b305a478f7::t_975fc5946f86d3 30,61,180,184-186,203,217-218,236-237,260-262,278,338-347,349,375
+src/transcript/index.ts
+  s_8725b305a478f7::t_244dca41405cd9 4-5
+src/transcript/window.ts
+  s_8725b305a478f7::t_1011f0499f1145 1-30
+test/forecast/jev.test.ts
+  s_8725b305a478f7::t_7cdb10d0ac2712 118,122-123,125,127-130,133-135
+test/runtime/session.test.ts
+  s_8725b305a478f7::t_e4d19ee61c6a4c 361,376
+test/transcript/window.test.ts
+  s_8725b305a478f7::t_f97fe76d029f5d 1-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "70174c4ca30531c5006371a738ea4c5dab505a97",
+  "prompts": {},
+  "humans": {
+    "h_0528fe13c98664": {
+      "author": "casterkay <poetrycoder>"
+    }
+  },
+  "sessions": {
+    "s_023fd6dc2b410a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d12c-535d-7b32-a5d7-7d30e47155f9",
+        "model": "unknown"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    },
+    "s_7cee6b3e3698cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ceba-51dc-7ea2-bfab-766191aeaae0",
+        "model": "unknown"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    },
+    "s_8725b305a478f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dea49f09-1e93-40ab-8639-2b09137c82cc",
+        "model": "claude-opus-5"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}

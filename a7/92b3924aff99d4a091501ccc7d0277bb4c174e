@@ -1,0 +1,29 @@
+extension/content.js
+  s_2d0351855f58c1::t_30eebc1bdaef1b 87,90,138-139
+src/panel/runtime.ts
+  s_2d0351855f58c1::t_d724dcb580ecaa 163,201-203,208-209,211-214
+src/panel/server.ts
+  s_2d0351855f58c1::t_5eb949ba753010 100,117,129-137
+src/panel/state.ts
+  s_2d0351855f58c1::t_107af9f6496698 98-102,114
+src/runtime/session.ts
+  s_2d0351855f58c1::t_14a6a57755e158 338,343,352
+test/panel/runtime.test.ts
+  s_2d0351855f58c1::t_df16d9357e9007 101-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a792b3924aff99d4a091501ccc7d0277bb4c174e",
+  "prompts": {},
+  "sessions": {
+    "s_2d0351855f58c1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d168-2847-71a3-ae92-d81c8f15b56a",
+        "model": "unknown"
+      },
+      "human_author": "casterkay <poetrycoder>"
+    }
+  }
+}
