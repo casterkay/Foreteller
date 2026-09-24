@@ -95,7 +95,11 @@ export class PanelState {
     this.publish();
   }
 
-  public recordForecasts(forecasts: readonly ForecastAnswer[], completedAtMs: number): void {
+  public recordForecasts(
+    forecasts: readonly ForecastAnswer[],
+    completedAtMs: number,
+    clearForecastError = true,
+  ): void {
     let updated = false;
     for (const forecast of forecasts) {
       const market = this.activeMarket(forecast.marketId);
@@ -107,7 +111,7 @@ export class PanelState {
     if (!updated) return;
     this.forecastCompletions.push(completedAtMs);
     if (this.forecastCompletions.length > 8) this.forecastCompletions.shift();
-    this.error = null;
+    if (clearForecastError) this.error = null;
     this.publish();
   }
 

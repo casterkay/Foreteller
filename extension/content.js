@@ -84,9 +84,10 @@ function createPanel(root, generation) {
   };
   let snapshot = null;
   const marketRows = new Map();
+  let settingsOpen = !elements.settings.hidden;
 
   elements.settingsButton.addEventListener("click", () => {
-    const open = elements.settings.hidden;
+    const open = !settingsOpen;
     setSettingsOpen(open);
     elements.settingsButton.setAttribute("aria-expanded", String(open));
   });
@@ -134,7 +135,8 @@ function createPanel(root, generation) {
   });
 
   function setSettingsOpen(open) {
-    if (elements.settings.hidden === !open) return;
+    if (settingsOpen === open) return;
+    settingsOpen = open;
     elements.settings.getAnimations().forEach((animation) => animation.cancel());
     if (open) elements.settings.hidden = false;
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) {

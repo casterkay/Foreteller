@@ -97,6 +97,7 @@ export class PanelServer {
       const onError = (error: Error): void => {
         server.off("listening", onListening);
         this.server = undefined;
+        this.closeStream();
         reject(error);
       };
       const onListening = (): void => {
@@ -113,11 +114,7 @@ export class PanelServer {
     const server = this.server;
     this.server = undefined;
     this.stopping = true;
-    clearInterval(this.heartbeat);
-    this.unsubscribe?.();
-    for (const client of this.stream?.clients ?? []) client.terminate();
-    this.stream?.close();
-    this.stream = undefined;
+    this.closeStream();
     for (const controller of this.requestControllers) {
       controller.abort(new Error("Panel service is stopping"));
     }
@@ -127,6 +124,15 @@ export class PanelServer {
       });
     }
     await this.options.runtime.stop();
+  }
+
+  private closeStream(): void {
+    clearInterval(this.heartbeat);
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    for (const client of this.stream?.clients ?? []) client.terminate();
+    this.stream?.close();
+    this.stream = undefined;
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {

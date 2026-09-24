@@ -160,6 +160,7 @@ export class PanelRuntime {
     const forecastTasks = new Set<Promise<void>>();
     let revision = 0;
     let appliedRevision = 0;
+    let outcomeRevision = 0;
     const matcher = session.eventProposal === null
       ? undefined
       : new TranscriptMatcher(
@@ -197,14 +198,20 @@ export class PanelRuntime {
       const result = await this.options.forecaster.forecast(snapshot, signal);
       if (result.status === "completed" && !signal.aborted && requestRevision > appliedRevision) {
         appliedRevision = requestRevision;
-        this.options.state.recordForecasts(result.answers, result.completedAtMs);
+        const latestOutcome = requestRevision > outcomeRevision;
+        outcomeRevision = Math.max(outcomeRevision, requestRevision);
+        this.options.state.recordForecasts(result.answers, result.completedAtMs, latestOutcome);
       }
     };
 
     const requestForecast = (text: string, cutoffMs: number): void => {
-      const task = runForecast(text, cutoffMs, ++revision).catch((error: unknown) => {
+      const requestRevision = ++revision;
+      const task = runForecast(text, cutoffMs, requestRevision).catch((error: unknown) => {
         if (!signal.aborted) {
-          this.options.state.forecastFailed(errorMessage(error));
+          if (requestRevision > outcomeRevision) {
+            outcomeRevision = requestRevision;
+            this.options.state.forecastFailed(errorMessage(error));
+          }
           this.options.logger.warn("Panel forecast unavailable", { error: errorMessage(error) });
         }
       }).finally(() => forecastTasks.delete(task));

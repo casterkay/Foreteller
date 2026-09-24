@@ -275,7 +275,6 @@ export class LiveSessionRuntime {
           this.options.store.recordBookSnapshot(binding.sessionId, market.marketId, snapshot);
           lastBookJournalAt.set(state.tokenId, snapshot.receivedAtMs);
         }
-
       },
       onError: (error) => this.options.logger.warn("Market stream reconnecting", {
         sessionId: binding.sessionId,
@@ -336,11 +335,12 @@ export class LiveSessionRuntime {
         source,
         (event) => {
           if (signal.aborted) return;
-          latestTiming = {
+          const timing: AudioTimingEvidence = {
             observedAgeMs: event.observedAgeMs,
             observedAgeBasis: event.observedAgeBasis,
             observedAtMs: event.segment.receivedAtMs,
           };
+          latestTiming = timing;
           const text = transcript.ingest(event.segment);
           if (text === undefined) return;
           const update = matcher.ingest(event.segment);
@@ -349,7 +349,7 @@ export class LiveSessionRuntime {
             if (!event.segment.isFinal || !update.addedFinal || latestTiming === undefined) return;
             if (!this.options.store.recordTranscript(binding.sessionId, event.segment)) return;
             for (const hit of update.hits) {
-              await this.handleSniper(binding, hit, books, attempts, latestTiming, signal);
+              await this.handleSniper(binding, hit, books, attempts, timing, signal);
             }
           });
         },
