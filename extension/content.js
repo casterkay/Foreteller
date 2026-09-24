@@ -3,8 +3,8 @@ const POSITIVE_EDGE_THRESHOLD = 0.1;
 const DEFAULT_SETTINGS = Object.freeze({
   serverPort: 4318,
   eventUrl: "",
-  customTitle: "Live mention forecast",
-  customTerms: "Artificial intelligence\nEconomy\nOne more thing",
+  customTitle: "Foreteller 预言家",
+  customTerms: "AI / Artificial intelligence\nEconomy / Economic\nFake News\nGenius\nChina 5+ times",
   speaker: "primary speaker",
 });
 
