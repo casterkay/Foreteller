@@ -13,6 +13,7 @@
 - For each issue, whenever necessary, create a worktree under `.agents/worktrees` and a PR. If you are orchestrating works across multiple issues, launch a subagent for each worktree and parallelize the work respecting issue dependencies. 
 - After each PR work finishes with major changes, automatically launch a subagent to independently and critically review it (do not inherit the parent session context). Ask the subagent to post change requests and comments under this PR, and do not merge until all comments are addressed.
 - Find and report root causes before fixing; implement only after approval.
+- Try to maintain linear history of the base branch using `rebase and merge`.
 - Pause and ask when material issues, uncertainty, ambiguity, or conflict emerges; 
   do not silently choose among interpretations.
 - Never hide confusion, invent fallback values, or paper over a failure. Honesty,
